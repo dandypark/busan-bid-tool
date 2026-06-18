@@ -4,7 +4,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db import get_conn
 from services.illamtable import IllamTable, get_region_no
-from services.bldg_api import get_bldg_info, get_illamtable_strct_no
+from services.bldg_api import get_bldg_info, get_illamtable_strct_no, get_otel_type
 
 # 경과연수별 잔가율 — [별표 7] 제19조 관련
 # strct_cd → 매년 상각률 (내용연수 끝 최솟값 10%)
@@ -123,12 +123,18 @@ def _get_otel_stdprice(bdong_cd: str, bun: int, ji: int) -> int:
 
 # 용도지수 — [별표 1] 제18조 관련
 # 별도 신청 없음=1.000, 주택으로 신청=1.050
-# 주거용(주택신청) 여부는 gigjungsi 건물의 공용비율로 추정
-# 평균 공용비율 < 0.7 → 주거용(용도지수 1.05 가능), >= 0.7 → 사무용(1.0)
-_SHARE_RATIO_THRESHOLD = 0.7
+# 건축물대장 API의 etcPurps 필드로 판별:
+#   '업무시설(오피스텔)' → 사무용(1.0), '오피스텔' → 주거용(1.05)
+# API 실패 시 공용비율(< 0.7) 기반 폴백
 
 def _is_residential_otel(bdong_cd: str, bun: int, ji: int) -> bool:
-    """건물 평균 공용비율 기반 주거용 오피스텔 여부 판단."""
+    """건축물대장 API etcPurps 기반 주거용 오피스텔 여부. API 실패 시 공용비율 폴백."""
+    try:
+        unit_type = get_otel_type(bdong_cd, bun, ji)
+        return unit_type == "residential"
+    except Exception:
+        pass
+    # 폴백: 평균 공용비율
     conn = get_conn()
     row = conn.execute(
         "SELECT AVG(share_area * 1.0 / excl_area) as avg_ratio "
@@ -137,7 +143,7 @@ def _is_residential_otel(bdong_cd: str, bun: int, ji: int) -> bool:
     ).fetchone()
     conn.close()
     avg_ratio = row['avg_ratio'] if row and row['avg_ratio'] is not None else 0.0
-    return avg_ratio < _SHARE_RATIO_THRESHOLD
+    return avg_ratio < 0.7
 
 
 def get_siga_info(bdong_cd: str, bun: int, ji: int, after_june: bool = False) -> dict:

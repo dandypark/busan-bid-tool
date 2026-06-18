@@ -73,3 +73,58 @@ def get_bldg_info(sigungu_cd: str, bjdong_cd: str, bun: str, ji: str) -> dict | 
 
 def get_illamtable_strct_no(strct_cd: str) -> int:
     return _illamtable_strct_no(strct_cd)
+
+
+def get_otel_type(bdong_cd: str, bun: int, ji: int) -> str:
+    """오피스텔 주거용/사무용 판별. 'residential' 또는 'office' 반환.
+    getBrExposPubuseAreaInfo API의 etcPurps 필드로 판단:
+    - '업무시설(오피스텔)' → 사무용(office)
+    - '오피스텔' → 주거용(residential)
+    결과는 otel_bldg_type 테이블에 캐싱.
+    """
+    conn = get_conn()
+    cached = conn.execute(
+        "SELECT unit_type FROM otel_bldg_type WHERE bdong_cd=? AND bun=? AND ji=?",
+        (bdong_cd, bun, ji)
+    ).fetchone()
+    conn.close()
+    if cached:
+        return cached['unit_type']
+
+    sigungu_cd = bdong_cd[:5]
+    bjdong_cd = bdong_cd[5:10]
+    url = f"{BLDG_API_URL}/getBrExposPubuseAreaInfo"
+    params = {
+        "serviceKey": MOLIT_API_KEY,
+        "pageNo": "1", "numOfRows": "20",
+        "sigunguCd": sigungu_cd,
+        "bjdongCd": bjdong_cd,
+        "bun": str(bun).zfill(4),
+        "ji": str(ji).zfill(4),
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        tree = ET.fromstring(resp.text)
+        unit_type = "residential"  # 기본값: 주거용
+        for item in tree.findall('.//item'):
+            def t(tag): return (item.findtext(tag) or '').strip()
+            # 전유부(exposPubuseGbCd=1)의 etcPurps 확인
+            if t('exposPubuseGbCd') == '1':
+                etc = t('etcPurps')
+                if '업무시설' in etc:
+                    unit_type = "office"
+                    break
+                elif '오피스텔' in etc:
+                    unit_type = "residential"
+                    break
+    except Exception:
+        unit_type = "residential"
+
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO otel_bldg_type (bdong_cd, bun, ji, unit_type, cached_at) VALUES (?,?,?,?,?)",
+        (bdong_cd, bun, ji, unit_type, datetime.now().strftime('%Y-%m-%d'))
+    )
+    conn.commit()
+    conn.close()
+    return unit_type
