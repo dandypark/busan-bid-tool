@@ -26,4 +26,4 @@ if DATABASE_URL and '.supabase.co' in DATABASE_URL and 'pooler' not in DATABASE_
     import re
     m = re.match(r'postgresql://postgres:([^@]+)@db\.([a-z]+)\.supabase\.co:\d+/postgres', DATABASE_URL)
     if m:
-        DATABASE_URL = f'postgresql://postgres.{m.group(2)}:{m.group(1)}@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres'
+        DATABASE_URL = f'postgresql://postgres.{m.group(2)}:{m.group(1)}@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres'
