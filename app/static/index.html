@@ -335,11 +335,20 @@
 </div>
 
 <div class="search-wrap">
-  <div class="search-box">
+  <div class="search-box" style="position:relative">
     <input id="addr_input" type="text"
-      placeholder="주소 입력 (예: 부산 동래구 온천동 1410-5)"
-      onkeydown="if(event.key==='Enter') doSearch()" />
+      placeholder="건물명 또는 주소 입력 (예: 루미향스, 온천동 1410-5)"
+      onkeydown="onAddrKeydown(event)"
+      oninput="onAddrInput()"
+      autocomplete="off" />
     <button id="search_btn" onclick="doSearch()">조회</button>
+    <div id="autocomplete_box" style="
+      display:none; position:absolute; top:100%; left:0;
+      width:calc(100% - 110px); max-height:320px; overflow-y:auto;
+      background:#fff; border:1.5px solid #3a7bd5; border-top:none;
+      border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.12);
+      z-index:1000; margin-top:-2px;
+    "></div>
   </div>
 </div>
 
@@ -368,6 +377,98 @@ const KAKAO_KEY = '665c3a3b10292afb05411a6cd25599da';
 let gItems = [];   // 현재 조회된 기준시가 목록
 let gGDItems = []; // 공동주택 목록
 
+// ── 건물명 자동완성 ────────────────────────────────────────────
+let _acTimer = null;
+let _acIdx = -1;
+
+async function onAddrInput() {
+  const q = document.getElementById('addr_input').value.trim();
+  const box = document.getElementById('autocomplete_box');
+  if (q.length < 2) { box.style.display = 'none'; return; }
+  clearTimeout(_acTimer);
+  _acTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/lookup/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      renderAC(data.results || []);
+    } catch(e) { box.style.display = 'none'; }
+  }, 220);
+}
+
+function renderAC(results) {
+  const box = document.getElementById('autocomplete_box');
+  if (!results.length) { box.style.display = 'none'; return; }
+  _acIdx = -1;
+  box.innerHTML = results.map((r, i) => {
+    const badge = r.btype === '공동주택'
+      ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:8px;margin-right:6px">아파트</span>'
+      : '<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:8px;margin-right:6px">오피스텔</span>';
+    const sub = r.addr ? `<span style="font-size:12px;color:#888;margin-left:4px">${r.addr}</span>` : '';
+    return `<div class="ac-item" data-i="${i}"
+      style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;display:flex;align-items:center"
+      onmousedown="selectAC(${JSON.stringify(r).replace(/"/g,'&quot;')})"
+      onmouseenter="hlAC(${i})">${badge}<span style="font-weight:600">${r.name}</span>${sub}</div>`;
+  }).join('');
+  box.style.display = 'block';
+}
+
+function hlAC(i) {
+  _acIdx = i;
+  document.querySelectorAll('.ac-item').forEach((el, j) => {
+    el.style.background = j === i ? '#eff6ff' : '';
+  });
+}
+
+function closeAC() {
+  document.getElementById('autocomplete_box').style.display = 'none';
+  _acIdx = -1;
+}
+
+async function selectAC(r) {
+  document.getElementById('addr_input').value = r.name + (r.addr ? ' (' + r.addr + ')' : '');
+  closeAC();
+  // 건물명 검색: bdong_cd + bun + ji로 바로 조회 (Kakao geocode 불필요)
+  const btn = document.getElementById('search_btn');
+  btn.disabled = true;
+  setLoading('건물 정보를 조회하는 중입니다...');
+  try {
+    const geo = { bdong_cd: r.bdong_cd, bun: r.bun, ji: r.ji, address_name: r.name + (r.addr ? ' (' + r.addr + ')' : '') };
+    await fetchAndRender(geo);
+  } catch(e) {
+    showError(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function onAddrKeydown(e) {
+  const box = document.getElementById('autocomplete_box');
+  const items = box.querySelectorAll('.ac-item');
+  if (box.style.display === 'none' || !items.length) {
+    if (e.key === 'Enter') doSearch();
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _acIdx = Math.min(_acIdx + 1, items.length - 1);
+    hlAC(_acIdx);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _acIdx = Math.max(_acIdx - 1, 0);
+    hlAC(_acIdx);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (_acIdx >= 0) items[_acIdx].dispatchEvent(new MouseEvent('mousedown'));
+    else { closeAC(); doSearch(); }
+  } else if (e.key === 'Escape') {
+    closeAC();
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-box')) closeAC();
+});
+
 // ── 카카오 지오코딩 ────────────────────────────────────────────
 async function geocode(addr) {
   const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(addr)}`;
@@ -386,10 +487,22 @@ async function geocode(addr) {
   };
 }
 
+// ── 공통: bdong_cd+bun+ji로 조회 후 렌더 ─────────────────────
+async function fetchAndRender(geo) {
+  setLoading('건물 정보를 조회하는 중입니다...');
+  const r = await fetch(`/api/lookup?bdong_cd=${geo.bdong_cd}&bun=${geo.bun}&ji=${geo.ji}`);
+  if (!r.ok) throw new Error(`서버 오류 (HTTP ${r.status})`);
+  const data = await r.json();
+  gItems   = data.gigjungsi_items || [];
+  gGDItems = data.gongdong_items  || [];
+  renderResult(geo, data);
+}
+
 // ── 검색 ───────────────────────────────────────────────────────
 async function doSearch() {
   const addr = document.getElementById('addr_input').value.trim();
   if (!addr) return alert('주소를 입력하세요');
+  closeAC();
 
   const btn = document.getElementById('search_btn');
   btn.disabled = true; btn.textContent = '조회 중...';
@@ -398,15 +511,7 @@ async function doSearch() {
   try {
     const geo = await geocode(addr);
     if (!geo) { showError('주소를 찾을 수 없습니다.'); return; }
-
-    setLoading('건물 정보를 조회하는 중입니다...');
-    const r = await fetch(`/api/lookup?bdong_cd=${geo.bdong_cd}&bun=${geo.bun}&ji=${geo.ji}`);
-    if (!r.ok) throw new Error(`서버 오류 (HTTP ${r.status})`);
-    const data = await r.json();
-
-    gItems   = data.gigjungsi_items || [];
-    gGDItems = data.gongdong_items  || [];
-    renderResult(geo, data);
+    await fetchAndRender(geo);
   } catch(e) {
     showError(e.message || '오류가 발생했습니다.');
   } finally {

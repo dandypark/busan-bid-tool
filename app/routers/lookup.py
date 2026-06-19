@@ -75,6 +75,50 @@ def _get_bldg_info(sigungu_cd: str, bjdong_cd: str, bun: str, ji: str) -> dict |
         return None
 
 
+@router.get("/search")
+def search_building(q: str = Query(..., min_length=1)):
+    """건물명으로 검색 — 자동완성용"""
+    conn = get_conn()
+    kw = f'%{q}%'
+
+    # 공동주택(아파트) — 단지명 + 행정동 주소 포함
+    gd = conn.execute("""
+        SELECT DISTINCT danji_nm AS name,
+               sigungu || ' ' || dong_nm AS addr,
+               bdong_cd, MIN(bun) AS bun, MIN(ji) AS ji,
+               '공동주택' AS btype
+        FROM gongdong
+        WHERE danji_nm LIKE ?
+        GROUP BY danji_nm, sigungu, dong_nm, bdong_cd
+        ORDER BY
+            CASE WHEN danji_nm LIKE ? THEN 0 ELSE 1 END,
+            danji_nm
+        LIMIT 15
+    """, (kw, f'{q}%')).fetchall()
+
+    # 오피스텔/상업용 건물 — 건물명
+    gj = conn.execute("""
+        SELECT DISTINCT bldg_name AS name,
+               type_nm AS addr,
+               bdong_cd, MIN(bun) AS bun, MIN(ji) AS ji,
+               '오피스텔' AS btype
+        FROM gigjungsi
+        WHERE bldg_name LIKE ?
+        GROUP BY bldg_name, type_nm, bdong_cd
+        ORDER BY
+            CASE WHEN bldg_name LIKE ? THEN 0 ELSE 1 END,
+            bldg_name
+        LIMIT 15
+    """, (kw, f'{q}%')).fetchall()
+
+    conn.close()
+
+    results = [dict(r) for r in gd] + [dict(r) for r in gj]
+    # 부산 우선 정렬: bdong_cd 26으로 시작하면 부산
+    results.sort(key=lambda x: (0 if x['bdong_cd'].startswith('26') else 1))
+    return {"results": results[:20]}
+
+
 @router.get("")
 def lookup(
     bdong_cd: str = Query(..., description="법정동코드 10자리"),
