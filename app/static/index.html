@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>부산 부동산 가격 조회</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Malgun Gothic', sans-serif; background: #f0f2f5; color: #333; min-height: 100vh; }
@@ -15,6 +16,20 @@
   }
   header h1 { font-size: 22px; font-weight: 600; }
   header p  { font-size: 13px; color: #8eb4e3; margin-top: 4px; }
+
+  /* 탭 네비게이션 */
+  .tab-nav {
+    background: white; border-bottom: 1px solid #e0e4ea;
+    padding: 0 24px; display: flex; gap: 0;
+  }
+  .tab-btn {
+    padding: 12px 22px; font-size: 14px; font-family: inherit;
+    font-weight: 600; color: #666; background: none; border: none;
+    border-bottom: 3px solid transparent; cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .tab-btn:hover { color: #3a7bd5; }
+  .tab-btn.active { color: #3a7bd5; border-bottom-color: #3a7bd5; }
 
   .search-wrap {
     background: white;
@@ -42,7 +57,22 @@
   .search-box button:hover    { background: #2d65b8; }
   .search-box button:disabled { background: #9ab5db; cursor: not-allowed; }
 
-  .container { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+  .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; transition: max-width .3s; }
+  .container.wide { max-width: 2200px; }
+  /* 분석 모드 테이블 압축 */
+  .container.wide table { font-size: 11px; }
+  .container.wide th { padding: 5px 4px; font-size: 10px; line-height: 1.3; }
+  .container.wide td { padding: 4px 4px; }
+  .container.wide .bid-input { width: 78px; font-size: 11px; padding: 3px 4px; }
+  /* 기본 컬럼 너비 고정 */
+  .container.wide #gj_table td:nth-child(1),
+  .container.wide #gj_table th:nth-child(1) { max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
+  .container.wide #gj_table td:nth-child(4),
+  .container.wide #gj_table td:nth-child(5),
+  .container.wide #gj_table td:nth-child(6),
+  .container.wide #gj_table th:nth-child(4),
+  .container.wide #gj_table th:nth-child(5),
+  .container.wide #gj_table th:nth-child(6) { width: 52px; }
 
   .card {
     background: white; border-radius: 10px;
@@ -51,31 +81,52 @@
     margin-bottom: 16px;
   }
 
-  /* 배지 */
   .badge {
     display: inline-block; padding: 3px 10px;
     border-radius: 12px; font-size: 12px; font-weight: 600;
   }
-  .badge-오피스텔  { background: #dbeafe; color: #1d4ed8; }
-  .badge-공동주택  { background: #d1fae5; color: #065f46; }
-  .badge-혼합      { background: #ede9fe; color: #6d28d9; }
-  .badge-기타      { background: #f3f4f6; color: #6b7280; }
+  .badge-오피스텔 { background: #dbeafe; color: #1d4ed8; }
+  .badge-공동주택 { background: #d1fae5; color: #065f46; }
+  .badge-혼합     { background: #ede9fe; color: #6d28d9; }
+  .badge-기타     { background: #f3f4f6; color: #6b7280; }
 
-  /* 건물 헤더 */
   .bldg-header {
     display: flex; align-items: center; gap: 10px;
-    flex-wrap: wrap; margin-bottom: 16px;
+    flex-wrap: wrap; margin-bottom: 12px;
   }
   .bldg-header .addr { font-size: 16px; font-weight: 700; color: #1a2a4a; }
   .bldg-header .meta { font-size: 12px; color: #777; }
 
-  /* 섹션 구분선 */
   .section-title {
     font-size: 13px; font-weight: 700; color: #555;
     margin: 0 0 10px;
     display: flex; align-items: center; gap: 8px;
   }
   .section-divider { border: none; border-top: 1px solid #e8edf4; margin: 20px 0; }
+
+  /* 개별공시지가 바 */
+  .gongsi-bar {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: #f0fdf4; border: 1px solid #86efac;
+    border-radius: 8px; padding: 7px 14px;
+    margin-bottom: 14px; font-size: 13px;
+  }
+  .gongsi-label { color: #166534; font-weight: 600; }
+  .gongsi-price { color: #15803d; font-weight: 700; font-size: 15px; }
+
+  /* 낙찰분석 토글 바 */
+  .analysis-bar {
+    background: #faf5ff; border: 1px solid #c4b5fd;
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .analysis-bar label {
+    font-size: 14px; color: #6d28d9; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .analysis-bar input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+  .analysis-bar .hint { font-size: 12px; color: #888; }
 
   /* 테이블 */
   .result-count { font-size: 12px; color: #888; margin-bottom: 8px; }
@@ -93,15 +144,174 @@
   .price { font-weight: 600; color: #1a2a4a; text-align: right; }
   .hug-col { color: #b45309; font-weight: 600; text-align: right; }
 
-  /* 개별공시지가 바 */
-  .gongsi-bar {
-    display: inline-flex; align-items: center; gap: 10px;
-    background: #f0fdf4; border: 1px solid #86efac;
-    border-radius: 8px; padding: 7px 14px;
-    margin-bottom: 16px; font-size: 13px;
+  /* 낙찰분석 컬럼 */
+  .ana-col { display: none; }
+  .ana-col.show { display: table-cell; }
+  .bid-input-cell { display: none; }
+  .bid-input-cell.show { display: table-cell; }
+
+  .bid-input {
+    width: 100px; padding: 4px 7px;
+    border: 1.5px solid #a78bfa; border-radius: 6px;
+    font-size: 12px; font-family: inherit; text-align: right;
+    background: #faf5ff;
   }
-  .gongsi-label { color: #166534; font-weight: 600; }
-  .gongsi-price { color: #15803d; font-weight: 700; font-size: 15px; }
+  .bid-input:focus { outline: none; border-color: #7c3aed; }
+
+  /* 분석 결과 셀 스타일 */
+  .ana-good  { color: #059669; font-weight: 700; text-align: right; }
+  .ana-warn  { color: #d97706; font-weight: 700; text-align: right; }
+  .ana-bad   { color: #dc2626; font-weight: 700; text-align: right; }
+  .ana-num   { color: #1e40af; font-weight: 600; text-align: right; }
+  .ana-gray  { color: #6b7280; text-align: right; }
+  .ana-ratio { font-size: 11px; color: #7c3aed; text-align: right; }
+
+  /* 분석 요약 패널 */
+  .summary-panel {
+    display: none;
+    margin-top: 14px; padding: 14px 18px;
+    background: #f5f3ff; border: 1px solid #ddd6fe;
+    border-radius: 8px; font-size: 13px;
+  }
+  .summary-panel.show { display: block; }
+  .summary-panel h4 { color: #5b21b6; margin-bottom: 8px; font-size: 13px; }
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+  .summary-item { background: white; border-radius: 6px; padding: 8px 12px; }
+  .summary-item .s-label { font-size: 11px; color: #888; }
+  .summary-item .s-value { font-size: 14px; font-weight: 700; color: #1a2a4a; margin-top: 2px; }
+  .summary-item .s-sub   { font-size: 11px; color: #6b7280; }
+
+  /* 저장 버튼 영역 */
+  .save-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb;
+  }
+  .save-bar input[type=text] {
+    flex: 1; min-width: 180px; padding: 6px 10px;
+    border: 1px solid #d0d7e4; border-radius: 6px;
+    font-size: 13px; font-family: inherit;
+  }
+  .btn-save {
+    padding: 7px 18px; background: #7c3aed; color: white;
+    border: none; border-radius: 6px; font-size: 13px;
+    font-family: inherit; cursor: pointer; white-space: nowrap;
+  }
+  .btn-save:hover { background: #6d28d9; }
+  .btn-save:disabled { background: #c4b5fd; cursor: not-allowed; }
+  .btn-excel {
+    padding: 7px 16px; background: #166534; color: white;
+    border: none; border-radius: 6px; font-size: 13px;
+    font-family: inherit; cursor: pointer; white-space: nowrap;
+  }
+  .btn-excel:hover { background: #14532d; }
+  .save-count { font-size: 12px; color: #888; }
+  .save-ok { font-size: 12px; color: #059669; font-weight: 600; }
+
+  /* 이력 탭 */
+  .history-filter {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .history-filter input {
+    flex: 1; min-width: 200px; max-width: 400px;
+    padding: 8px 12px; border: 1.5px solid #d0d7e4; border-radius: 7px;
+    font-size: 14px; font-family: inherit;
+  }
+  .history-filter input:focus { outline: none; border-color: #3a7bd5; }
+  .btn-sm {
+    padding: 7px 14px; border: none; border-radius: 6px;
+    font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  .btn-primary { background: #3a7bd5; color: white; }
+  .btn-primary:hover { background: #2d65b8; }
+  .btn-secondary { background: #f0f4f8; color: #333; border: 1px solid #d0d7e4; }
+  .btn-secondary:hover { background: #e0e7ef; }
+  .btn-danger  { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+  .btn-danger:hover { background: #fee2e2; }
+
+  /* 이력 목록 카드 */
+  .hist-list { display: flex; flex-direction: column; gap: 10px; }
+  .hist-card {
+    border: 1.5px solid #e0e4ea; border-radius: 10px;
+    padding: 14px 16px; cursor: pointer;
+    display: flex; align-items: center; gap: 14px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .hist-card:hover { border-color: #3a7bd5; box-shadow: 0 2px 8px rgba(58,123,213,.12); }
+  .hist-card-main { flex: 1; min-width: 0; }
+  .hist-card-addr { font-size: 14px; font-weight: 700; color: #1a2a4a; margin-bottom: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-card-note { font-size: 13px; color: #7c3aed; font-weight: 600; }
+  .hist-card-note:empty { display: none; }
+  .hist-card-meta { font-size: 11px; color: #888; margin-top: 3px; }
+  .hist-card-count {
+    background: #dbeafe; color: #1d4ed8;
+    border-radius: 20px; padding: 3px 12px;
+    font-size: 12px; font-weight: 700; white-space: nowrap;
+  }
+  .hist-card-arrow { color: #bbb; font-size: 16px; }
+
+  /* 이력 상세 화면 */
+  .hist-detail-back {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  }
+  .hist-detail-title { font-size: 16px; font-weight: 700; color: #1a2a4a; flex: 1; }
+  .hist-detail-note { font-size: 14px; color: #7c3aed; font-weight: 600; }
+  .hist-detail-date { font-size: 12px; color: #888; }
+
+  .history-stats {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .hstat {
+    background: #f0f4f8; border-radius: 6px; padding: 5px 10px;
+    font-size: 12px; color: #555;
+  }
+  .hstat strong { color: #1a2a4a; }
+  .hstat.top { background: #f5f3ff; border: 1px solid #ddd6fe; }
+  .hstat.top strong { color: #7c3aed; }
+
+  /* 패턴 분석 패널 */
+  .pattern-top {
+    background: white; border: 2px solid #7c3aed;
+    border-radius: 8px; padding: 12px 16px; margin: 10px 0 14px;
+  }
+  .pattern-top-label { font-size: 11px; color: #7c3aed; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+  .pattern-top-value { font-size: 15px; font-weight: 700; color: #1a2a4a; margin: 4px 0 2px; }
+  .pattern-top-detail { font-size: 12px; color: #555; }
+  .pattern-top-interp {
+    margin-top: 6px; padding: 6px 10px;
+    background: #f5f3ff; border-radius: 6px;
+    font-size: 13px; color: #5b21b6; font-weight: 600;
+  }
+
+  .pattern-rank-title { font-size: 12px; font-weight: 700; color: #555; margin-bottom: 6px; }
+  .pattern-rank-list  { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .pattern-rank-item  {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: white; border: 1px solid #e5e7eb;
+    border-radius: 7px; padding: 8px 12px;
+  }
+  .pattern-rank-item.rank-first {
+    border-color: #7c3aed; background: #faf5ff;
+  }
+  .rank-medal { font-size: 18px; line-height: 1.4; min-width: 28px; }
+  .rank-body  { flex: 1; }
+  .rank-label { font-size: 13px; font-weight: 600; color: #1a2a4a; }
+  .rank-vals  { font-size: 12px; color: #555; margin-top: 2px; }
+
+  .pattern-totals {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    padding-top: 10px; border-top: 1px solid #e5e7eb;
+  }
+  .pt-item {
+    flex: 1; min-width: 140px;
+    background: white; border-radius: 6px; padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .pt-item span    { font-size: 11px; color: #888; }
+  .pt-item strong  { font-size: 14px; color: #1a2a4a; }
 
   /* 상태 메시지 */
   .msg-loading { color: #3a7bd5; padding: 32px; text-align: center; font-size: 15px; }
@@ -119,6 +329,11 @@
   <p>2026년 기준 · 오피스텔 기준시가 / 공동주택 공시가격</p>
 </header>
 
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('search')">🔍 가격 조회</button>
+  <button class="tab-btn" onclick="switchTab('history')">📂 낙찰 이력</button>
+</div>
+
 <div class="search-wrap">
   <div class="search-box">
     <input id="addr_input" type="text"
@@ -128,12 +343,30 @@
   </div>
 </div>
 
-<div class="container">
+<div id="tab_search">
+<div class="container" id="main_container">
   <div id="result_area"></div>
+</div>
+</div>
+
+<div id="tab_history" style="display:none">
+<div class="container" id="hist_container" style="max-width:1800px">
+  <div class="card">
+    <div class="history-filter">
+      <input id="hist_addr" type="text" placeholder="주소로 검색 (예: 온천동, 용호동...)" onkeydown="if(event.key==='Enter') loadHistory()" />
+      <button class="btn-sm btn-primary" onclick="loadHistory()">조회</button>
+      <button class="btn-sm btn-primary" onclick="loadHistory(true)" style="background:#059669">전체 조회</button>
+    </div>
+    <div id="history_area"><div class="msg-empty">위에서 주소를 검색하거나 전체 조회를 눌러주세요.</div></div>
+  </div>
+</div>
 </div>
 
 <script>
 const KAKAO_KEY = '665c3a3b10292afb05411a6cd25599da';
+
+let gItems = [];   // 현재 조회된 기준시가 목록
+let gGDItems = []; // 공동주택 목록
 
 // ── 카카오 지오코딩 ────────────────────────────────────────────
 async function geocode(addr) {
@@ -153,38 +386,31 @@ async function geocode(addr) {
   };
 }
 
-// ── 숫자 포맷 ──────────────────────────────────────────────────
-function fmt(n) {
-  if (n == null || n === '') return '-';
-  return Number(n).toLocaleString('ko-KR') + '원';
-}
-
 // ── 검색 ───────────────────────────────────────────────────────
 async function doSearch() {
   const addr = document.getElementById('addr_input').value.trim();
   if (!addr) return alert('주소를 입력하세요');
 
   const btn = document.getElementById('search_btn');
-  btn.disabled = true;
-  btn.textContent = '조회 중...';
+  btn.disabled = true; btn.textContent = '조회 중...';
   setLoading('주소를 검색하는 중입니다...');
 
   try {
     const geo = await geocode(addr);
-    if (!geo) { showError('주소를 찾을 수 없습니다. 더 구체적인 주소를 입력해 주세요.'); return; }
+    if (!geo) { showError('주소를 찾을 수 없습니다.'); return; }
 
     setLoading('건물 정보를 조회하는 중입니다...');
-
     const r = await fetch(`/api/lookup?bdong_cd=${geo.bdong_cd}&bun=${geo.bun}&ji=${geo.ji}`);
     if (!r.ok) throw new Error(`서버 오류 (HTTP ${r.status})`);
     const data = await r.json();
 
+    gItems   = data.gigjungsi_items || [];
+    gGDItems = data.gongdong_items  || [];
     renderResult(geo, data);
   } catch(e) {
     showError(e.message || '오류가 발생했습니다.');
   } finally {
-    btn.disabled = false;
-    btn.textContent = '조회';
+    btn.disabled = false; btn.textContent = '조회';
   }
 }
 
@@ -192,9 +418,7 @@ async function doSearch() {
 function renderResult(geo, data) {
   const hasGJ = data.gigjungsi_count > 0;
   const hasGD = data.gongdong_count  > 0;
-  const total  = (data.gigjungsi_count || 0) + (data.gongdong_count || 0);
-
-  if (!total) {
+  if (!hasGJ && !hasGD) {
     document.getElementById('result_area').innerHTML = `
       <div class="card">
         <div class="bldg-header">
@@ -207,7 +431,6 @@ function renderResult(geo, data) {
     return;
   }
 
-  // 건물 헤더
   let html = `<div class="card">
     <div class="bldg-header">
       <span class="addr">${geo.address_name}</span>
@@ -217,6 +440,8 @@ function renderResult(geo, data) {
     const yr = b.use_apr_day ? b.use_apr_day.substring(0,4) + '년 준공' : '';
     html += `<span class="meta">${b.strct_nm||''} ${yr ? '· '+yr : ''}</span>`;
   }
+  html += `</div>`;
+
   if (data.gongsi_price != null) {
     html += `<div class="gongsi-bar">
       <span class="gongsi-label">개별공시지가 (2026)</span>
@@ -224,29 +449,46 @@ function renderResult(geo, data) {
     </div>`;
   }
 
-  html += `</div>`;
-
   // ── 오피스텔 섹션 ──
   if (hasGJ) {
     if (hasGD) html += `<div class="section-title"><span class="badge badge-오피스텔">오피스텔</span> 기준시가</div>`;
 
-    html += `<div class="result-count">${data.gigjungsi_count}건</div>
+    html += `
+    <div class="analysis-bar">
+      <label>
+        <input type="checkbox" id="ana_toggle" onchange="toggleAnalysis()">
+        낙찰가 분석 모드
+      </label>
+      <span class="hint">각 호실에 상대방 낙찰가를 입력하면 기준시가·허그한도 대비 분석을 제공합니다</span>
+    </div>
+    <div id="gj_summary" class="summary-panel"></div>
+    <div class="result-count">${data.gigjungsi_count}건</div>
     <div class="table-wrap">
-    <table>
+    <table id="gj_table">
       <thead><tr>
         <th>건물명</th><th>층</th><th>호</th>
-        <th class="num">전용면적(㎡)</th>
-        <th class="num">공용면적(㎡)</th>
+        <th class="num">전용(㎡)</th>
+        <th class="num">공용(㎡)</th>
         <th class="num">건물면적(㎡)</th>
         <th class="num">고시가격(원/㎡)</th>
-        <th class="num">기준시가 합계</th>
-        <th class="num hug-col">허그보증보험 한도</th>
+        <th class="num">기준시가</th>
+        <th class="num hug-col">허그한도</th>
+        <th class="bid-input-cell" id="th_bid">낙찰가 입력</th>
+        <th class="ana-col" id="th_a1">낙찰가율<br><small>기준시가 대비</small></th>
+        <th class="ana-col" id="th_a2">기준시가 차액</th>
+        <th class="ana-col" id="th_a3">기준시가 배율</th>
+        <th class="ana-col" id="th_a4">허그 여유금</th>
+        <th class="ana-col" id="th_a5">허그 배율</th>
+        <th class="ana-col" id="th_a6">㎡당 단가</th>
+        <th class="ana-col" id="th_a7">고시가격 대비</th>
+        <th class="ana-col" id="th_a8">취등록세<br><small>4.6%</small></th>
+        <th class="ana-col" id="th_a9">세후 취득가</th>
       </tr></thead>
       <tbody>`;
 
-    data.gigjungsi_items.forEach(r => {
+    data.gigjungsi_items.forEach((r, i) => {
       const hug = Math.round(r.total_price * 1.26);
-      html += `<tr>
+      html += `<tr id="gjr_${i}">
         <td>${r.bldg_name||'-'}</td>
         <td>${r.floor_no||'-'}층</td>
         <td>${r.ho_no||'-'}</td>
@@ -256,32 +498,64 @@ function renderResult(geo, data) {
         <td class="price">${Number(r.price).toLocaleString('ko-KR')}</td>
         <td class="price">${Number(r.total_price).toLocaleString('ko-KR')}원</td>
         <td class="hug-col">${Number(hug).toLocaleString('ko-KR')}원</td>
+        <td class="bid-input-cell" id="bid_td_${i}">
+          <input class="bid-input" type="number" placeholder="금액 입력"
+            oninput="calcBid(${i}, this.value)"
+            data-ref="${r.total_price}" data-hug="${hug}"
+            data-excl="${r.excl_area}" data-price="${r.price}" />
+        </td>
+        <td class="ana-col" id="ana1_${i}">-</td>
+        <td class="ana-col" id="ana2_${i}">-</td>
+        <td class="ana-col" id="ana3_${i}">-</td>
+        <td class="ana-col" id="ana4_${i}">-</td>
+        <td class="ana-col" id="ana5_${i}">-</td>
+        <td class="ana-col" id="ana6_${i}">-</td>
+        <td class="ana-col" id="ana7_${i}">-</td>
+        <td class="ana-col" id="ana8_${i}">-</td>
+        <td class="ana-col" id="ana9_${i}">-</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
   }
 
-  // ── 구분선 ──
   if (hasGJ && hasGD) html += `<hr class="section-divider">`;
 
-  // ── 공동주택(다세대) 섹션 ──
+  // ── 공동주택 섹션 ──
   if (hasGD) {
     if (hasGJ) html += `<div class="section-title" style="margin-top:4px"><span class="badge badge-공동주택">공동주택</span> 공시가격</div>`;
 
-    html += `<div class="result-count">${data.gongdong_count}건</div>
+    html += `
+    <div class="analysis-bar">
+      <label>
+        <input type="checkbox" id="ana_toggle_gd" onchange="toggleAnalysisGD()">
+        낙찰가 분석 모드
+      </label>
+      <span class="hint">각 호실에 상대방 낙찰가를 입력하면 공시가격·허그한도 대비 분석을 제공합니다</span>
+    </div>
+    <div id="gd_summary" class="summary-panel"></div>
+    <div class="result-count">${data.gongdong_count}건</div>
     <div class="table-wrap">
-    <table>
+    <table id="gd_table">
       <thead><tr>
         <th>단지명</th><th>동</th><th>층</th><th>호명</th>
-        <th class="num">전용면적(㎡)</th>
+        <th class="num">전용(㎡)</th>
         <th class="num">공동주택 공시가격</th>
-        <th class="num hug-col">허그보증보험 한도</th>
+        <th class="num hug-col">허그한도</th>
+        <th class="bid-input-cell gd-ana">낙찰가 입력</th>
+        <th class="ana-col gd-ana">낙찰가율<br><small style="font-weight:400;color:#888">공시가격 대비</small></th>
+        <th class="ana-col gd-ana">공시가격 차액</th>
+        <th class="ana-col gd-ana">공시가격 배율</th>
+        <th class="ana-col gd-ana">허그 여유금</th>
+        <th class="ana-col gd-ana">허그 배율</th>
+        <th class="ana-col gd-ana">㎡당 낙찰단가</th>
+        <th class="ana-col gd-ana">취등록세 (1.1%)<br><small style="font-weight:400;color:#888">낙찰가 × 1.1%</small></th>
+        <th class="ana-col gd-ana">세후 실질취득가<br><small style="font-weight:400;color:#888">낙찰가 + 취등록세</small></th>
       </tr></thead>
       <tbody>`;
 
-    data.gongdong_items.forEach(r => {
+    data.gongdong_items.forEach((r, i) => {
       const hug = Math.round(r.price * 1.26);
-      html += `<tr>
+      html += `<tr id="gdr_${i}">
         <td>${r.danji_nm||'-'}</td>
         <td>${r.dong||'-'}</td>
         <td>${r.floor||'-'}층</td>
@@ -289,6 +563,19 @@ function renderResult(geo, data) {
         <td class="num">${r.excl_area}</td>
         <td class="price">${Number(r.price).toLocaleString('ko-KR')}원</td>
         <td class="hug-col">${Number(hug).toLocaleString('ko-KR')}원</td>
+        <td class="bid-input-cell gd-ana" id="gd_bid_td_${i}">
+          <input class="bid-input" type="number" placeholder="금액 입력"
+            oninput="calcBidGD(${i}, this.value)"
+            data-ref="${r.price}" data-hug="${hug}" data-excl="${r.excl_area}" />
+        </td>
+        <td class="ana-col gd-ana" id="gda1_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda2_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda3_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda4_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda5_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda6_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda7_${i}">-</td>
+        <td class="ana-col gd-ana" id="gda8_${i}">-</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -298,14 +585,704 @@ function renderResult(geo, data) {
   document.getElementById('result_area').innerHTML = html;
 }
 
+// ── 낙찰분석 토글 (오피스텔) ──────────────────────────────────
+function toggleAnalysis() {
+  const on = document.getElementById('ana_toggle').checked;
+  document.querySelectorAll('#gj_table .ana-col').forEach(el => el.classList.toggle('show', on));
+  document.querySelectorAll('#gj_table .bid-input-cell').forEach(el => el.classList.toggle('show', on));
+  document.getElementById('main_container').classList.toggle('wide', on);
+  if (!on) {
+    document.querySelectorAll('#gj_table .bid-input').forEach(el => { el.value = ''; });
+    document.querySelectorAll('[id^="ana"]').forEach(el => { if(el.tagName==='TD') el.textContent = '-'; });
+    document.getElementById('gj_summary').classList.remove('show');
+  }
+}
+
+// ── 낙찰분석 토글 (공동주택) ──────────────────────────────────
+function toggleAnalysisGD() {
+  const on = document.getElementById('ana_toggle_gd').checked;
+  document.querySelectorAll('#gd_table .ana-col').forEach(el => el.classList.toggle('show', on));
+  document.querySelectorAll('#gd_table .bid-input-cell').forEach(el => el.classList.toggle('show', on));
+  document.getElementById('main_container').classList.toggle('wide', on);
+  if (!on) {
+    document.querySelectorAll('#gd_table .bid-input').forEach(el => { el.value = ''; });
+    document.getElementById('gd_summary').classList.remove('show');
+  }
+}
+
+// ── 낙찰가 분석 계산 (오피스텔) ──────────────────────────────
+function calcBid(i, val) {
+  const bid = parseFloat(val);
+  const reset = v => { ['ana1','ana2','ana3','ana4','ana5','ana6','ana7'].forEach(p => {
+    const el = document.getElementById(p + '_' + i);
+    if (el) el.textContent = v;
+  }); };
+
+  if (!bid || bid <= 0) { reset('-'); updateSummaryGJ(); return; }
+
+  const inp   = document.querySelector(`#bid_td_${i} input`);
+  const ref   = parseFloat(inp.dataset.ref);   // 기준시가
+  const hug   = parseFloat(inp.dataset.hug);   // 허그한도
+  const excl  = parseFloat(inp.dataset.excl);  // 전용면적
+  const price = parseFloat(inp.dataset.price); // 고시가격(원/㎡)
+
+  const rate     = bid / ref;          // 낙찰가율
+  const diff_ref = ref - bid;          // 기준시가 차액
+  const mult_ref = ref / bid;          // 기준시가 배율
+  const diff_hug = hug - bid;          // 허그 여유금
+  const mult_hug = hug / bid;          // 허그 배율
+  const per_m2   = bid / excl;         // ㎡당 낙찰단가
+  const vs_price = per_m2 / price;     // 고시가격 대비
+
+  const pct = v => (v * 100).toFixed(2) + '%';
+  const won = v => (v >= 0 ? '+' : '') + Math.round(v).toLocaleString('ko-KR') + '원';
+  const mult = v => v.toFixed(4) + '배';
+  const moneyCell = (id, v, cls) => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = v; el.className = 'ana-col show ' + cls; }
+  };
+
+  // 낙찰가율 — 100% 미만=good(싸게), 110% 이상=bad(비쌈)
+  const rateCls = rate < 1.0 ? 'ana-good' : rate < 1.1 ? 'ana-warn' : 'ana-bad';
+  moneyCell(`ana1_${i}`, pct(rate), rateCls);
+
+  // 기준시가 차액 — 양수(낙찰가가 낮음)=good
+  moneyCell(`ana2_${i}`, won(diff_ref), diff_ref >= 0 ? 'ana-good' : 'ana-bad');
+
+  // 기준시가 배율
+  moneyCell(`ana3_${i}`, mult(mult_ref), 'ana-num');
+
+  // 허그 여유금 — 양수=여유
+  moneyCell(`ana4_${i}`, won(diff_hug), diff_hug >= 0 ? 'ana-good' : 'ana-bad');
+
+  // 허그 배율
+  moneyCell(`ana5_${i}`, mult(mult_hug), 'ana-num');
+
+  // ㎡당 낙찰단가
+  moneyCell(`ana6_${i}`, Math.round(per_m2).toLocaleString('ko-KR') + '원/㎡', 'ana-num');
+
+  // 고시가격 대비
+  moneyCell(`ana7_${i}`, pct(vs_price), vs_price < 1.0 ? 'ana-good' : vs_price < 1.2 ? 'ana-warn' : 'ana-bad');
+
+  // 취등록세 (오피스텔 4.6%)
+  const tax     = Math.round(bid * 0.046);
+  const total_c = bid + tax;
+  moneyCell(`ana8_${i}`, Math.round(tax).toLocaleString('ko-KR') + '원', 'ana-warn');
+  moneyCell(`ana9_${i}`, Math.round(total_c).toLocaleString('ko-KR') + '원', 'ana-num');
+
+  updateSummaryGJ();
+}
+
+// ── 낙찰가 분석 계산 (공동주택) ──────────────────────────────
+function calcBidGD(i, val) {
+  const bid = parseFloat(val);
+  if (!bid || bid <= 0) {
+    ['gda1','gda2','gda3','gda4','gda5','gda6'].forEach(p => {
+      const el = document.getElementById(p + '_' + i);
+      if (el) el.textContent = '-';
+    });
+    updateSummaryGD(); return;
+  }
+
+  const inp  = document.querySelector(`#gd_bid_td_${i} input`);
+  const ref  = parseFloat(inp.dataset.ref);
+  const hug  = parseFloat(inp.dataset.hug);
+  const excl = parseFloat(inp.dataset.excl);
+
+  const rate     = bid / ref;
+  const diff_ref = ref - bid;
+  const mult_ref = ref / bid;
+  const diff_hug = hug - bid;
+  const mult_hug = hug / bid;
+  const per_m2   = excl > 0 ? bid / excl : 0;
+
+  const pct  = v => (v * 100).toFixed(2) + '%';
+  const won  = v => (v >= 0 ? '+' : '') + Math.round(v).toLocaleString('ko-KR') + '원';
+  const mult = v => v.toFixed(4) + '배';
+  const set  = (id, v, cls) => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = v; el.className = 'ana-col gd-ana show ' + cls; }
+  };
+
+  set(`gda1_${i}`, pct(rate),   rate < 1.0 ? 'ana-good' : rate < 1.1 ? 'ana-warn' : 'ana-bad');
+  set(`gda2_${i}`, won(diff_ref), diff_ref >= 0 ? 'ana-good' : 'ana-bad');
+  set(`gda3_${i}`, mult(mult_ref), 'ana-num');
+  set(`gda4_${i}`, won(diff_hug),  diff_hug >= 0 ? 'ana-good' : 'ana-bad');
+  set(`gda5_${i}`, mult(mult_hug), 'ana-num');
+  set(`gda6_${i}`, per_m2 > 0 ? Math.round(per_m2).toLocaleString('ko-KR') + '원/㎡' : '-', 'ana-num');
+
+  // 취등록세 (다세대 1.1%)
+  const tax_gd   = Math.round(bid * 0.011);
+  const total_gd = bid + tax_gd;
+  set(`gda7_${i}`, tax_gd.toLocaleString('ko-KR') + '원', 'ana-col gd-ana ana-warn');
+  set(`gda8_${i}`, total_gd.toLocaleString('ko-KR') + '원', 'ana-col gd-ana ana-num');
+
+  updateSummaryGD();
+}
+
+// ── 통계 유틸 ─────────────────────────────────────────────────
+function _stats(arr) {
+  const n = arr.length;
+  if (n === 0) return { avg: 0, std: 0, cv: 0, min: 0, max: 0 };
+  const avg = arr.reduce((s, v) => s + v, 0) / n;
+  const std = Math.sqrt(arr.reduce((s, v) => s + (v - avg) ** 2, 0) / n);
+  const cv  = avg !== 0 ? std / Math.abs(avg) : 0;
+  return { avg, std, cv, min: Math.min(...arr), max: Math.max(...arr) };
+}
+
+// ── 입찰 기준 패턴 분석 ────────────────────────────────────────
+// 각 지표의 변동계수(CV)가 낮을수록 상대방이 그 기준을 사용했을 가능성이 높음
+function _analyzePattern(bids, refKey) {
+  // refKey: 'ref'(기준시가) 또는 'ref'(공시가격) — 동일 필드명 사용
+  const metrics = [
+    {
+      key: 'hug_rate',
+      label: '허그한도 배율 (허그 ÷ 낙찰가)',
+      desc: '허그한도의 N배로 입찰',
+      vals: bids.map(b => b.hug / b.bid),
+      fmt:  v => v.toFixed(4) + '배',
+    },
+    {
+      key: 'hug_ratio',
+      label: '낙찰가율 (낙찰가 ÷ 허그한도)',
+      desc: '허그한도의 N%로 입찰',
+      vals: bids.map(b => b.bid / b.hug),
+      fmt:  v => (v * 100).toFixed(2) + '%',
+    },
+    {
+      key: 'hug_diff',
+      label: '허그 차액 (허그 - 낙찰가)',
+      desc: '허그한도보다 N원 낮게 입찰',
+      vals: bids.map(b => b.hug - b.bid),
+      fmt:  v => Math.round(v).toLocaleString('ko-KR') + '원',
+    },
+    {
+      key: 'ref_rate',
+      label: '기준시가 배율 (기준시가 ÷ 낙찰가)',
+      desc: '기준시가의 N배로 입찰',
+      vals: bids.map(b => b.ref / b.bid),
+      fmt:  v => v.toFixed(4) + '배',
+    },
+    {
+      key: 'ref_ratio',
+      label: '낙찰가율 (낙찰가 ÷ 기준시가)',
+      desc: '기준시가의 N%로 입찰',
+      vals: bids.map(b => b.bid / b.ref),
+      fmt:  v => (v * 100).toFixed(2) + '%',
+    },
+    {
+      key: 'ref_diff',
+      label: '기준시가 차액 (기준시가 - 낙찰가)',
+      desc: '기준시가보다 N원 낮게 입찰',
+      vals: bids.map(b => b.ref - b.bid),
+      fmt:  v => Math.round(v).toLocaleString('ko-KR') + '원',
+    },
+    {
+      key: 'per_m2',
+      label: '㎡당 낙찰단가 (전용면적 기준)',
+      desc: '전용 ㎡당 N원으로 입찰',
+      vals: bids.filter(b => b.excl > 0).map(b => b.bid / b.excl),
+      fmt:  v => Math.round(v).toLocaleString('ko-KR') + '원/㎡',
+    },
+    {
+      key: 'tax_total_hug_rate',
+      label: '세후취득가 허그 배율 (허그 ÷ 세후취득가)',
+      desc: '세후 실질취득가 기준 허그한도의 N배',
+      vals: bids.map(b => b.hug / (b.bid * (1 + (b.taxRate || 0)))),
+      fmt:  v => v.toFixed(4) + '배',
+    },
+    {
+      key: 'tax_total_ref_rate',
+      label: '세후취득가 기준시가 배율 (기준시가 ÷ 세후취득가)',
+      desc: '세후 실질취득가 기준 기준시가의 N배',
+      vals: bids.map(b => b.ref / (b.bid * (1 + (b.taxRate || 0)))),
+      fmt:  v => v.toFixed(4) + '배',
+    },
+  ].filter(m => m.vals.length >= 2);
+
+  return metrics.map(m => ({ ...m, stats: _stats(m.vals) }))
+                .sort((a, b) => a.stats.cv - b.stats.cv);
+}
+
+// ── 요약·패턴 패널 공통 렌더 ──────────────────────────────────
+function _renderSummary(panelId, bids, refLabel, n) {
+  const panel = document.getElementById(panelId);
+  if (n < 1) { panel.classList.remove('show'); return; }
+
+  const won  = v => Math.round(v).toLocaleString('ko-KR') + '원';
+  const pct  = v => (v * 100).toFixed(2) + '%';
+
+  const ranked = _analyzePattern(bids);
+  const cvBar  = cv => {
+    const width = Math.min(cv * 1000, 100).toFixed(1);
+    const color = cv < 0.005 ? '#059669' : cv < 0.02 ? '#d97706' : '#dc2626';
+    return `<div style="height:6px;background:#e5e7eb;border-radius:3px;margin-top:4px">
+              <div style="height:6px;width:${width}%;background:${color};border-radius:3px"></div>
+            </div>`;
+  };
+
+  // 1위 기준 (CV 최소) 강조
+  const top = ranked[0];
+  const topSt = top.stats;
+
+  let html = `
+  <h4>🔍 입찰 기준 패턴 분석 <span style="font-size:11px;font-weight:400;color:#888">(${n}건 입력 · 변동계수가 낮을수록 상대방의 실제 기준일 가능성 높음)</span></h4>
+
+  <div class="pattern-top">
+    <div class="pattern-top-label">추정 입찰 기준 (가장 일관성 높음)</div>
+    <div class="pattern-top-value">${top.label}</div>
+    <div class="pattern-top-detail">
+      평균 <strong>${top.fmt(topSt.avg)}</strong> &nbsp;·&nbsp;
+      범위 ${top.fmt(topSt.min)} ~ ${top.fmt(topSt.max)} &nbsp;·&nbsp;
+      변동계수 <strong style="color:${topSt.cv<0.005?'#059669':topSt.cv<0.02?'#d97706':'#dc2626'}">${(topSt.cv*100).toFixed(3)}%</strong>
+    </div>
+    <div class="pattern-top-interp">${top.desc.replace('N', top.fmt(topSt.avg))}</div>
+  </div>
+
+  <div class="pattern-rank-title">전체 지표 일관성 순위</div>
+  <div class="pattern-rank-list">`;
+
+  ranked.forEach((m, idx) => {
+    const st = m.stats;
+    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx+1}.`;
+    const cvColor = st.cv < 0.005 ? '#059669' : st.cv < 0.02 ? '#d97706' : '#dc2626';
+    html += `
+    <div class="pattern-rank-item ${idx===0?'rank-first':''}">
+      <div class="rank-medal">${medal}</div>
+      <div class="rank-body">
+        <div class="rank-label">${m.label}</div>
+        <div class="rank-vals">
+          평균 <b>${m.fmt(st.avg)}</b>
+          &nbsp; 최저 ${m.fmt(st.min)} · 최고 ${m.fmt(st.max)}
+          &nbsp; 변동계수 <b style="color:${cvColor}">${(st.cv*100).toFixed(3)}%</b>
+        </div>
+        ${cvBar(st.cv)}
+      </div>
+    </div>`;
+  });
+
+  html += `</div>
+
+  <div class="pattern-totals">
+    <div class="pt-item"><span>총 낙찰금액</span><strong>${won(bids.reduce((s,b)=>s+b.bid,0))}</strong></div>
+    <div class="pt-item"><span>${refLabel} 합계</span><strong>${won(bids.reduce((s,b)=>s+b.ref,0))}</strong></div>
+    <div class="pt-item"><span>허그한도 합계</span><strong>${won(bids.reduce((s,b)=>s+b.hug,0))}</strong></div>
+  </div>`;
+
+  // 저장 바 추가
+  html += `
+  <div class="save-bar">
+    <input type="text" id="${panelId}_note" placeholder="메모 (경쟁자명, 날짜 등 — 선택)" />
+    <button class="btn-save" onclick="saveBids('${panelId}')">💾 결과 저장</button>
+    <button class="btn-excel" onclick="exportAnalysisExcel('${panelId}')">📊 엑셀 출력</button>
+    <span id="${panelId}_save_msg" class="save-ok" style="display:none">저장 완료!</span>
+  </div>`;
+
+  panel.innerHTML = html;
+  panel.classList.add('show');
+}
+
+// ── 낙찰이력 저장 ─────────────────────────────────────────────
+async function saveBids(panelId) {
+  const isGJ   = panelId === 'gj_summary';
+  const tblId  = isGJ ? '#gj_table' : '#gd_table';
+  const inputs = [...document.querySelectorAll(`${tblId} .bid-input`)].filter(el => parseFloat(el.value) > 0);
+  if (!inputs.length) return;
+
+  const note    = document.getElementById(panelId + '_note')?.value.trim() || '';
+  const addr    = document.querySelector('.bldg-addr')?.textContent.trim() ||
+                  document.querySelector('#result_area .card-title')?.textContent.trim() || '';
+  const btype   = isGJ ? '오피스텔' : '공동주택';
+  const taxRate = isGJ ? 0.046 : 0.011;
+
+  const records = inputs.map(el => {
+    const row  = el.closest('tr');
+    const cells = row.querySelectorAll('td');
+    const bid  = parseFloat(el.value);
+    const ref  = parseFloat(el.dataset.ref)  || 0;
+    const hug  = parseFloat(el.dataset.hug)  || 0;
+    const excl = parseFloat(el.dataset.excl) || 0;
+    const tax  = Math.round(bid * taxRate);
+    return {
+      address:    addr,
+      bldg_type:  btype,
+      bldg_name:  cells[0]?.textContent.trim() || '',
+      floor_no:   (cells[1]?.textContent || '').replace('층','').trim(),
+      ho_no:      cells[2]?.textContent.trim() || '',
+      excl_area:  excl,
+      bid_price:  Math.round(bid),
+      ref_price:  Math.round(ref),
+      hug_limit:  Math.round(hug),
+      tax_rate:   taxRate,
+      tax_amount: tax,
+      total_cost: Math.round(bid + tax),
+      hug_rate:   hug > 0 ? parseFloat((hug / bid).toFixed(6)) : null,
+      ref_rate:   ref > 0 ? parseFloat((ref / bid).toFixed(6)) : null,
+      hug_diff:   hug > 0 ? Math.round(hug - bid) : null,
+      ref_diff:   ref > 0 ? Math.round(ref - bid) : null,
+      per_m2:     excl > 0 ? Math.round(bid / excl) : null,
+      note,
+    };
+  });
+
+  const btn = document.querySelector(`#${panelId} .btn-save`);
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/bid_history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(records),
+    });
+    if (!resp.ok) throw new Error('저장 실패');
+    const msg = document.getElementById(panelId + '_save_msg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 3000);
+  } catch(e) {
+    alert('저장 오류: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── 탭 전환 ───────────────────────────────────────────────────
+function switchTab(name) {
+  document.getElementById('tab_search').style.display  = name === 'search'  ? '' : 'none';
+  document.getElementById('tab_history').style.display = name === 'history' ? '' : 'none';
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0) === (name === 'search'));
+  });
+  if (name === 'history') loadHistory(true);
+}
+
+// ── 이력 전역 저장소 ──────────────────────────────────────────
+let _histGroups = {};   // key → { address, note, date, rows[] }
+
+// ── 이력 조회 ─────────────────────────────────────────────────
+async function loadHistory(all = false) {
+  const q   = all ? '' : (document.getElementById('hist_addr')?.value.trim() || '');
+  const url = '/api/bid_history' + (q ? `?address=${encodeURIComponent(q)}` : '?limit=200');
+  const area = document.getElementById('history_area');
+  area.innerHTML = '<div class="msg-loading">조회 중...</div>';
+  try {
+    const resp = await fetch(url);
+    const rows = await resp.json();
+    if (!rows.length) {
+      _histGroups = {};
+      area.innerHTML = '<div class="msg-empty">저장된 이력이 없습니다.</div>';
+      return;
+    }
+    // 주소 + 메모 + 날짜 기준 그룹화
+    _histGroups = {};
+    rows.forEach(r => {
+      const key = r.address + '||' + (r.note||'') + '||' + r.saved_at.slice(0,10);
+      if (!_histGroups[key]) _histGroups[key] = {
+        address: r.address,
+        note: r.note || '',
+        date: r.saved_at.slice(0,10),
+        rows: []
+      };
+      _histGroups[key].rows.push(r);
+    });
+    area.innerHTML = renderHistoryList(_histGroups);
+  } catch(e) {
+    area.innerHTML = `<div class="msg-error">오류: ${e.message}</div>`;
+  }
+}
+
+// ── 이력 목록 (카드형) ────────────────────────────────────────
+function renderHistoryList(groups) {
+  const keys = Object.keys(groups);
+  if (!keys.length) return '<div class="msg-empty">저장된 이력이 없습니다.</div>';
+
+  let html = '<div class="hist-list">';
+  keys.forEach(key => {
+    const g = groups[key];
+    const types = [...new Set(g.rows.map(r => r.bldg_type))].filter(Boolean).join(' · ');
+    const ek = key.replace(/`/g,'\\`').replace(/\\/g,'\\\\');
+    html += `
+    <div class="hist-card" onclick="showHistoryDetail('${ek.replace(/'/g,"\\'")}')">
+      <div class="hist-card-main">
+        <div class="hist-card-addr">${g.address}</div>
+        ${g.note ? `<div class="hist-card-note">📋 ${g.note}</div>` : ''}
+        <div class="hist-card-meta">${types} · ${g.date}</div>
+      </div>
+      <span class="hist-card-count">${g.rows.length}건</span>
+      <span class="hist-card-arrow">›</span>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+// ── 이력 상세 화면 ────────────────────────────────────────────
+function showHistoryDetail(key) {
+  const g = _histGroups[key];
+  if (!g) return;
+  const area = document.getElementById('history_area');
+  const won = v => Math.round(v).toLocaleString('ko-KR') + '원';
+  const pct = v => (v * 100).toFixed(2) + '%';
+  const bids = g.rows;
+
+  // ── 패턴 분석 ──
+  const metrics = [
+    { label: '허그 배율',      vals: bids.map(b=>b.hug_rate).filter(v=>v!=null),  fmt: v=>v.toFixed(4)+'배' },
+    { label: '기준시가 배율',  vals: bids.map(b=>b.ref_rate).filter(v=>v!=null),  fmt: v=>v.toFixed(4)+'배' },
+    { label: '허그 차액',      vals: bids.map(b=>b.hug_diff).filter(v=>v!=null),  fmt: v=>won(v) },
+    { label: '기준시가 차액',  vals: bids.map(b=>b.ref_diff).filter(v=>v!=null),  fmt: v=>won(v) },
+    { label: '낙찰가율(허그)', vals: bids.filter(b=>b.hug_limit).map(b=>b.bid_price/b.hug_limit), fmt: v=>pct(v) },
+    { label: '낙찰가율(기준)', vals: bids.filter(b=>b.ref_price).map(b=>b.bid_price/b.ref_price), fmt: v=>pct(v) },
+    { label: '㎡당 낙찰단가',  vals: bids.map(b=>b.per_m2).filter(v=>v!=null),    fmt: v=>won(v) },
+  ].filter(m => m.vals.length >= 2);
+
+  metrics.forEach(m => {
+    const avg = m.vals.reduce((s,v)=>s+v,0)/m.vals.length;
+    const std = Math.sqrt(m.vals.reduce((s,v)=>s+(v-avg)**2,0)/m.vals.length);
+    m.avg = avg; m.cv = avg !== 0 ? std/Math.abs(avg) : 0;
+  });
+  metrics.sort((a,b) => a.cv - b.cv);
+  const top = metrics[0];
+
+  // ── 헤더 ──
+  let html = `
+  <div class="hist-detail-back">
+    <button class="btn-sm btn-secondary" onclick="showHistoryList()">← 목록</button>
+    <div style="flex:1">
+      <div class="hist-detail-title">${g.address}</div>
+      ${g.note ? `<div class="hist-detail-note">📋 ${g.note}</div>` : ''}
+      <div class="hist-detail-date">${g.date} · ${bids.length}건</div>
+    </div>
+    <button class="btn-excel" onclick="exportHistExcel('${key.replace(/'/g,"\\'")}')">📊 엑셀 출력</button>
+    <button class="btn-sm btn-danger" onclick="deleteHistGroup('${key.replace(/'/g,"\\'")}')">이력 삭제</button>
+  </div>`;
+
+  // ── 패턴 요약 ──
+  if (top) {
+    html += `<div class="history-stats">
+      <div class="hstat top">🏆 추정기준: <strong>${top.label} ${top.fmt(top.avg)}</strong> (변동계수 ${(top.cv*100).toFixed(3)}%)</div>`;
+    metrics.slice(1).forEach(m => {
+      html += `<div class="hstat">${m.label}: <strong>${m.fmt(m.avg)}</strong> (CV ${(m.cv*100).toFixed(2)}%)</div>`;
+    });
+    html += `</div>`;
+  }
+
+  // ── 분석 테이블 ──
+  const isGJ = bids.some(b => b.bldg_type === '오피스텔');
+  const refLabel = isGJ ? '기준시가' : '공시가격';
+  const taxLabel = isGJ ? '4.6%' : '1.1%';
+
+  html += `<div class="container wide" style="max-width:100%;margin:0;padding:0">
+  <div class="table-wrap"><table style="font-size:12px">
+    <thead><tr>
+      <th>건물명</th><th>층</th><th>호</th><th class="num">전용(㎡)</th>
+      <th class="num">낙찰가</th>
+      <th class="num">${refLabel}</th>
+      <th class="num">낙찰가율<br><small>${refLabel}대비</small></th>
+      <th class="num">${refLabel}<br><small>차액</small></th>
+      <th class="num">${refLabel}<br><small>배율</small></th>
+      <th class="num">허그한도</th>
+      <th class="num">허그<br><small>여유금</small></th>
+      <th class="num">허그<br><small>배율</small></th>
+      <th class="num">㎡당<br><small>단가</small></th>
+      <th class="num">취등록세<br><small>${taxLabel}</small></th>
+      <th class="num">세후<br><small>취득가</small></th>
+      <th></th>
+    </tr></thead><tbody>`;
+
+  bids.forEach(r => {
+    const refRate = r.ref_price ? (r.bid_price / r.ref_price * 100).toFixed(2) + '%' : '-';
+    html += `<tr>
+      <td>${r.bldg_name||'-'}</td>
+      <td>${r.floor_no ? r.floor_no+'층' : '-'}</td>
+      <td>${r.ho_no||'-'}</td>
+      <td class="num">${r.excl_area||'-'}</td>
+      <td class="price">${won(r.bid_price)}</td>
+      <td class="num">${r.ref_price ? won(r.ref_price) : '-'}</td>
+      <td class="num">${refRate}</td>
+      <td class="num ${r.ref_diff>=0?'ana-good':'ana-bad'}">${r.ref_diff!=null ? won(r.ref_diff) : '-'}</td>
+      <td class="num">${r.ref_rate ? r.ref_rate.toFixed(4)+'배' : '-'}</td>
+      <td class="num">${r.hug_limit ? won(r.hug_limit) : '-'}</td>
+      <td class="num ${r.hug_diff>=0?'ana-good':'ana-bad'}">${r.hug_diff!=null ? won(r.hug_diff) : '-'}</td>
+      <td class="num">${r.hug_rate ? r.hug_rate.toFixed(4)+'배' : '-'}</td>
+      <td class="num">${r.per_m2 ? won(r.per_m2) : '-'}</td>
+      <td class="num">${r.tax_amount ? won(r.tax_amount) : '-'}</td>
+      <td class="num">${r.total_cost ? won(r.total_cost) : '-'}</td>
+      <td><button class="btn-sm btn-danger" onclick="deleteHistRow(${r.id}, '${key.replace(/'/g,"\\'")}', this)" style="padding:2px 7px;font-size:11px">✕</button></td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div></div>`;
+  area.innerHTML = html;
+}
+
+// ── 목록으로 돌아가기 ─────────────────────────────────────────
+function showHistoryList() {
+  document.getElementById('history_area').innerHTML = renderHistoryList(_histGroups);
+}
+
+// ── 이력 삭제 (상세에서 단건) ─────────────────────────────────
+async function deleteHistRow(id, key, btn) {
+  if (!confirm('이 건을 삭제할까요?')) return;
+  await fetch(`/api/bid_history/${id}`, { method: 'DELETE' });
+  btn.closest('tr').remove();
+  // 그룹에서도 제거
+  if (_histGroups[key]) {
+    _histGroups[key].rows = _histGroups[key].rows.filter(r => r.id !== id);
+    if (!_histGroups[key].rows.length) {
+      delete _histGroups[key];
+      showHistoryList();
+    }
+  }
+}
+
+// ── 이력 삭제 (상세에서 전체) ─────────────────────────────────
+async function deleteHistGroup(key) {
+  const g = _histGroups[key];
+  if (!g || !confirm(`"${g.address}" 이력 전체를 삭제할까요?`)) return;
+  await fetch(`/api/bid_history?address=${encodeURIComponent(g.address)}`, { method: 'DELETE' });
+  delete _histGroups[key];
+  showHistoryList();
+}
+
+// ── 요약 패널 (오피스텔) ─────────────────────────────────────
+function updateSummaryGJ() {
+  const inputs = [...document.querySelectorAll('#gj_table .bid-input')].filter(el => parseFloat(el.value) > 0);
+  const bids = inputs.map(el => ({
+    bid:     parseFloat(el.value),
+    ref:     parseFloat(el.dataset.ref),
+    hug:     parseFloat(el.dataset.hug),
+    excl:    parseFloat(el.dataset.excl),
+    price:   parseFloat(el.dataset.price),
+    taxRate: 0.046,
+  }));
+  _renderSummary('gj_summary', bids, '기준시가', inputs.length);
+}
+
+// ── 요약 패널 (공동주택) ─────────────────────────────────────
+function updateSummaryGD() {
+  const inputs = [...document.querySelectorAll('#gd_table .bid-input')].filter(el => parseFloat(el.value) > 0);
+  const bids = inputs.map(el => ({
+    bid:     parseFloat(el.value),
+    ref:     parseFloat(el.dataset.ref),
+    hug:     parseFloat(el.dataset.hug),
+    excl:    parseFloat(el.dataset.excl),
+    taxRate: 0.011,
+  }));
+  _renderSummary('gd_summary', bids, '공시가격', inputs.length);
+}
+
+// ── 엑셀 출력 (분석 결과 — 검색 탭) ─────────────────────────
+function exportAnalysisExcel(panelId) {
+  const isGJ   = panelId === 'gj_summary';
+  const tblId  = isGJ ? '#gj_table' : '#gd_table';
+  const inputs = [...document.querySelectorAll(`${tblId} .bid-input`)].filter(el => parseFloat(el.value) > 0);
+  if (!inputs.length) { alert('낙찰가를 입력한 호실이 없습니다.'); return; }
+
+  const taxRate  = isGJ ? 0.046 : 0.011;
+  const taxLabel = isGJ ? '4.6%' : '1.1%';
+  const refLabel = isGJ ? '기준시가' : '공시가격';
+  const addr     = document.querySelector('.bldg-addr')?.textContent.trim() || '분석결과';
+
+  const headers = [
+    '건물명','층','호','전용(㎡)',
+    '낙찰가',
+    refLabel, `낙찰가율(${refLabel}대비)`, `${refLabel} 차액`, `${refLabel} 배율`,
+    '허그한도', '허그 여유금', '허그 배율',
+    '㎡당 낙찰단가',
+    `취등록세(${taxLabel})`, '세후 실질취득가'
+  ];
+
+  const rows = inputs.map(el => {
+    const row   = el.closest('tr');
+    const cells = row.querySelectorAll('td');
+    const bid   = parseFloat(el.value);
+    const ref   = parseFloat(el.dataset.ref) || 0;
+    const hug   = parseFloat(el.dataset.hug) || 0;
+    const excl  = parseFloat(el.dataset.excl) || 0;
+    const tax   = Math.round(bid * taxRate);
+    return [
+      cells[0]?.textContent.trim() || '',
+      cells[1]?.textContent.trim() || '',
+      cells[2]?.textContent.trim() || '',
+      excl,
+      Math.round(bid),
+      Math.round(ref),
+      ref > 0 ? parseFloat((bid/ref*100).toFixed(2)) : '',
+      ref > 0 ? Math.round(ref - bid) : '',
+      ref > 0 ? parseFloat((ref/bid).toFixed(4)) : '',
+      Math.round(hug),
+      hug > 0 ? Math.round(hug - bid) : '',
+      hug > 0 ? parseFloat((hug/bid).toFixed(4)) : '',
+      excl > 0 ? Math.round(bid/excl) : '',
+      tax,
+      Math.round(bid + tax),
+    ];
+  });
+
+  _downloadXlsx([headers, ...rows], addr, `${addr}_낙찰분석`);
+}
+
+// ── 엑셀 출력 (낙찰이력 상세) ────────────────────────────────
+function exportHistExcel(key) {
+  const g = _histGroups[key];
+  if (!g) return;
+  const isGJ     = g.rows.some(b => b.bldg_type === '오피스텔');
+  const refLabel = isGJ ? '기준시가' : '공시가격';
+  const taxLabel = isGJ ? '4.6%' : '1.1%';
+  const title    = g.address + (g.note ? ` (${g.note})` : '') + ` ${g.date}`;
+
+  const headers = [
+    '건물명','층','호','전용(㎡)',
+    '낙찰가',
+    refLabel, `낙찰가율(${refLabel}대비)`, `${refLabel} 차액`, `${refLabel} 배율`,
+    '허그한도', '허그 여유금', '허그 배율',
+    '㎡당 낙찰단가',
+    `취등록세(${taxLabel})`, '세후 실질취득가',
+    '메모'
+  ];
+
+  const rows = g.rows.map(r => [
+    r.bldg_name || '',
+    r.floor_no ? r.floor_no + '층' : '',
+    r.ho_no || '',
+    r.excl_area || '',
+    r.bid_price,
+    r.ref_price || '',
+    r.ref_price ? parseFloat((r.bid_price/r.ref_price*100).toFixed(2)) : '',
+    r.ref_diff ?? '',
+    r.ref_rate ? parseFloat(r.ref_rate.toFixed(4)) : '',
+    r.hug_limit || '',
+    r.hug_diff ?? '',
+    r.hug_rate ? parseFloat(r.hug_rate.toFixed(4)) : '',
+    r.per_m2 || '',
+    r.tax_amount || '',
+    r.total_cost || '',
+    r.note || '',
+  ]);
+
+  _downloadXlsx([headers, ...rows], title, `${g.address}_${g.date}_낙찰이력`);
+}
+
+// ── SheetJS 다운로드 헬퍼 ─────────────────────────────────────
+function _downloadXlsx(data, sheetName, fileName) {
+  const wb  = XLSX.utils.book_new();
+  const ws  = XLSX.utils.aoa_to_sheet(data);
+
+  // 컬럼 너비 자동
+  const colWidths = data[0].map((_, ci) => ({
+    wch: Math.max(...data.map(row => String(row[ci] ?? '').length), 8)
+  }));
+  ws['!cols'] = colWidths;
+
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  XLSX.writeFile(wb, fileName.replace(/[\\/:*?"<>|]/g, '_') + '.xlsx');
+}
+
 // ── 유틸 ──────────────────────────────────────────────────────
 function setLoading(msg) {
-  document.getElementById('result_area').innerHTML =
-    `<div class="card msg-loading">${msg}</div>`;
+  document.getElementById('result_area').innerHTML = `<div class="card msg-loading">${msg}</div>`;
 }
 function showError(msg) {
-  document.getElementById('result_area').innerHTML =
-    `<div class="card"><div class="msg-error">오류: ${msg}</div></div>`;
+  document.getElementById('result_area').innerHTML = `<div class="card"><div class="msg-error">오류: ${msg}</div></div>`;
 }
 </script>
 </body>
