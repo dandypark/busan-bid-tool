@@ -2,6 +2,7 @@ services:
   - type: web
     name: busan-bid-tool
     runtime: python
+    pythonVersion: "3.11.0"
     buildCommand: "bash build.sh"
     startCommand: "cd app && uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
