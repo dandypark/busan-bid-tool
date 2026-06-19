@@ -89,10 +89,10 @@ def search_building(q: str = Query(..., min_length=1)):
     kw = f'%{q}%'
     starts = f'{q}%'
 
-    # 공동주택(아파트) — 단지명 + 구/동 주소
+    # 공동주택(아파트) — 단지명 + 구/동/번지
     gd = conn.execute("""
         SELECT DISTINCT danji_nm AS name,
-               sigungu || ' ' || dong_nm AS addr,
+               sigungu AS sigungu, dong_nm AS dong_nm,
                bdong_cd, MIN(bun) AS bun, MIN(ji) AS ji,
                '공동주택' AS btype
         FROM gongdong
@@ -102,7 +102,7 @@ def search_building(q: str = Query(..., min_length=1)):
         LIMIT 15
     """, (kw, starts)).fetchall()
 
-    # 오피스텔/상업용 — gongsi 테이블과 JOIN해서 dong_nm(법정동명) 확보
+    # 오피스텔/상업용 — gongsi JOIN으로 동명 확보
     gj = conn.execute("""
         SELECT DISTINCT g.bldg_name AS name,
                COALESCE(gs.dong_nm, '') AS dong_nm,
@@ -119,13 +119,26 @@ def search_building(q: str = Query(..., min_length=1)):
 
     conn.close()
 
-    gd_list = [dict(r) for r in gd]
+    def jibun(bun, ji):
+        return f'{bun}-{ji}' if ji else str(bun)
+
+    gd_list = []
+    for r in gd:
+        d = dict(r)
+        sigungu = d.pop('sigungu', '')
+        dong = d.pop('dong_nm', '')
+        jb = jibun(d['bun'], d['ji'])
+        parts = [p for p in [sigungu, dong, jb] if p]
+        d['addr'] = ' '.join(parts)
+        gd_list.append(d)
+
     gj_list = []
     for r in gj:
         d = dict(r)
         gu = BUSAN_GU.get(d['bdong_cd'][:5], '')
         dong = d.pop('dong_nm', '')
-        parts = [p for p in [gu, dong] if p]
+        jb = jibun(d['bun'], d['ji'])
+        parts = [p for p in [gu, dong, jb] if p]
         d['addr'] = ' '.join(parts)
         gj_list.append(d)
 
