@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Query
 from db import get_conn
-from services.bldg_api import get_bldg_info
-from services.siga_calc import get_siga_info
+import requests
+import xml.etree.ElementTree as ET
+from datetime import datetime
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import MOLIT_API_KEY, BLDG_API_URL
 
 router = APIRouter(prefix="/api/lookup", tags=["통합조회"])
 
@@ -18,6 +23,58 @@ def _classify(main_purps: str) -> str:
     return '기타'
 
 
+def _get_bldg_info(sigungu_cd: str, bjdong_cd: str, bun: str, ji: str) -> dict | None:
+    conn = get_conn()
+    cached = conn.execute(
+        "SELECT * FROM bldg_cache WHERE sigungu_cd=? AND bjdong_cd=? AND bun=? AND ji=?",
+        (sigungu_cd, bjdong_cd, bun, ji)
+    ).fetchone()
+    conn.close()
+    if cached:
+        return dict(cached)
+
+    url = f"{BLDG_API_URL}/getBrTitleInfo"
+    params = {
+        "serviceKey": MOLIT_API_KEY,
+        "pageNo": "1", "numOfRows": "1",
+        "sigunguCd": sigungu_cd, "bjdongCd": bjdong_cd,
+        "bun": bun.zfill(4), "ji": ji.zfill(4),
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        tree = ET.fromstring(resp.text)
+        item = tree.find('.//item')
+        if item is None:
+            return None
+
+        def t(tag): return (item.findtext(tag) or '').strip()
+
+        result = {
+            "sigungu_cd": sigungu_cd, "bjdong_cd": bjdong_cd,
+            "bun": bun, "ji": ji,
+            "cached_at": datetime.now().strftime('%Y-%m-%d'),
+            "strct_cd": t('strctCd'),
+            "strct_nm": t('strctCdNm'),
+            "use_apr_day": t('useAprDay'),
+            "plat_area": float(t('platArea') or 0),
+            "tot_area": float(t('totArea') or 0),
+            "main_purps": t('mainPurpsCdNm'),
+        }
+        conn = get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO bldg_cache "
+            "(sigungu_cd,bjdong_cd,bun,ji,cached_at,strct_cd,strct_nm,"
+            "use_apr_day,plat_area,tot_area,main_purps) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            list(result.values())
+        )
+        conn.commit()
+        conn.close()
+        return result
+    except Exception:
+        return None
+
+
 @router.get("")
 def lookup(
     bdong_cd: str = Query(..., description="법정동코드 10자리"),
@@ -27,12 +84,11 @@ def lookup(
     sigungu_cd = bdong_cd[:5]
     bjdong_cd  = bdong_cd[5:10]
 
-    bldg = get_bldg_info(sigungu_cd, bjdong_cd, str(bun), str(ji))
+    bldg = _get_bldg_info(sigungu_cd, bjdong_cd, str(bun), str(ji))
     bldg_type = _classify(bldg.get('main_purps', '') if bldg else '')
 
     conn = get_conn()
 
-    # 두 테이블 항상 모두 조회
     gj_rows = conn.execute(
         "SELECT bldg_name, dong_nm, floor_no, ho_no, price, excl_area, share_area, "
         "excl_area + share_area as bldg_area, "
@@ -47,12 +103,17 @@ def lookup(
         (bdong_cd, bun, ji)
     ).fetchall()
 
+    gongsi_row = conn.execute(
+        "SELECT price FROM gongsi WHERE bdong_cd=? AND bun=? AND ji=? ORDER BY base_year DESC LIMIT 1",
+        (bdong_cd, bun, ji)
+    ).fetchone()
+
     conn.close()
 
     gigjungsi_items = [dict(r) for r in gj_rows]
     gongdong_items  = [dict(r) for r in gd_rows]
+    gongsi_price    = gongsi_row['price'] if gongsi_row else None
 
-    # 실제 데이터 기반으로 유형 재분류 (혼합 건물 포함)
     has_gj = len(gigjungsi_items) > 0
     has_gd = len(gongdong_items)  > 0
 
@@ -62,23 +123,13 @@ def lookup(
         bldg_type = '오피스텔'
     elif has_gd:
         bldg_type = '공동주택'
-    # else: 건축물대장 기반 유형 그대로 유지
 
     return {
         "bldg_type": bldg_type,
         "bldg_info": bldg,
+        "gongsi_price": gongsi_price,
         "gigjungsi_count": len(gigjungsi_items),
         "gongdong_count":  len(gongdong_items),
         "gigjungsi_items": gigjungsi_items,
         "gongdong_items":  gongdong_items,
     }
-
-
-@router.get("/siga_info")
-def siga_info_route(
-    bdong_cd: str = Query(...),
-    bun: int = Query(...),
-    ji: int = Query(0),
-    after_june: bool = Query(False),
-):
-    return get_siga_info(bdong_cd, bun, ji, after_june)

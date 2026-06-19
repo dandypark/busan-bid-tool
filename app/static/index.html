@@ -42,8 +42,7 @@
   .search-box button:hover    { background: #2d65b8; }
   .search-box button:disabled { background: #9ab5db; cursor: not-allowed; }
 
-  .container { max-width: 980px; margin: 24px auto; padding: 0 16px; transition: max-width 0.3s; }
-  .container.siga-wide { max-width: 1400px; }
+  .container { max-width: 980px; margin: 24px auto; padding: 0 16px; }
 
   .card {
     background: white; border-radius: 10px;
@@ -78,34 +77,6 @@
   }
   .section-divider { border: none; border-top: 1px solid #e8edf4; margin: 20px 0; }
 
-  /* 시가표준액 옵션 바 */
-  .siga-bar {
-    background: #f8faff; border: 1px solid #dbeafe;
-    border-radius: 8px; padding: 10px 14px;
-    margin-bottom: 14px;
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  }
-  .siga-bar label.toggle-lbl {
-    font-size: 14px; color: #1d4ed8; cursor: pointer;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .siga-bar input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
-  .daejiji-group {
-    display: none; align-items: center; gap: 8px;
-  }
-  .daejiji-group.show { display: flex; }
-  .daejiji-group span { font-size: 13px; color: #444; }
-  .daejiji-group input {
-    width: 90px; padding: 5px 8px;
-    border: 1px solid #93c5fd; border-radius: 6px;
-    font-size: 13px; font-family: inherit;
-  }
-  .daejiji-group button {
-    padding: 5px 14px; background: #3a7bd5; color: white;
-    border: none; border-radius: 6px;
-    font-size: 13px; font-family: inherit; cursor: pointer;
-  }
-
   /* 테이블 */
   .result-count { font-size: 12px; color: #888; margin-bottom: 8px; }
   .table-wrap  { overflow-x: auto; }
@@ -120,11 +91,17 @@
   tr:hover td { background: #f7f9ff; }
   .num   { text-align: right; }
   .price { font-weight: 600; color: #1a2a4a; text-align: right; }
-  .siga-bldg  { color: #1d4ed8; font-weight: 600; text-align: right; }
-  .siga-land  { color: #0891b2; font-weight: 600; text-align: right; }
-  .siga-total { color: #7c3aed; font-weight: 700; text-align: right; }
-  .hug-col    { color: #b45309; font-weight: 600; text-align: right; }
-  .siga-col-hide { display: none; }
+  .hug-col { color: #b45309; font-weight: 600; text-align: right; }
+
+  /* 개별공시지가 바 */
+  .gongsi-bar {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: #f0fdf4; border: 1px solid #86efac;
+    border-radius: 8px; padding: 7px 14px;
+    margin-bottom: 16px; font-size: 13px;
+  }
+  .gongsi-label { color: #166534; font-weight: 600; }
+  .gongsi-price { color: #15803d; font-weight: 700; font-size: 15px; }
 
   /* 상태 메시지 */
   .msg-loading { color: #3a7bd5; padding: 32px; text-align: center; font-size: 15px; }
@@ -139,7 +116,7 @@
 
 <header>
   <h1>부산 부동산 가격 조회</h1>
-  <p>2026년 기준 · 오피스텔 기준시가 / 공동주택 공시가격 / 시가표준액</p>
+  <p>2026년 기준 · 오피스텔 기준시가 / 공동주택 공시가격</p>
 </header>
 
 <div class="search-wrap">
@@ -157,13 +134,6 @@
 
 <script>
 const KAKAO_KEY = '665c3a3b10292afb05411a6cd25599da';
-
-// ── 전역 상태 ──────────────────────────────────────────────────
-let gState = {
-  bdong_cd: '', bun: 0, ji: 0,
-  gj_items: [],    // 기준시가 목록
-  siga_base: null, // 시가표준액 기본 정보
-};
 
 // ── 카카오 지오코딩 ────────────────────────────────────────────
 async function geocode(addr) {
@@ -203,18 +173,12 @@ async function doSearch() {
     const geo = await geocode(addr);
     if (!geo) { showError('주소를 찾을 수 없습니다. 더 구체적인 주소를 입력해 주세요.'); return; }
 
-    gState.bdong_cd = geo.bdong_cd;
-    gState.bun = geo.bun;
-    gState.ji  = geo.ji;
-    gState.siga_base = null;
-
     setLoading('건물 정보를 조회하는 중입니다...');
 
     const r = await fetch(`/api/lookup?bdong_cd=${geo.bdong_cd}&bun=${geo.bun}&ji=${geo.ji}`);
     if (!r.ok) throw new Error(`서버 오류 (HTTP ${r.status})`);
     const data = await r.json();
 
-    gState.gj_items = data.gigjungsi_items || [];
     renderResult(geo, data);
   } catch(e) {
     showError(e.message || '오류가 발생했습니다.');
@@ -253,26 +217,22 @@ function renderResult(geo, data) {
     const yr = b.use_apr_day ? b.use_apr_day.substring(0,4) + '년 준공' : '';
     html += `<span class="meta">${b.strct_nm||''} ${yr ? '· '+yr : ''}</span>`;
   }
+  if (data.gongsi_price != null) {
+    html += `<div class="gongsi-bar">
+      <span class="gongsi-label">개별공시지가 (2026)</span>
+      <span class="gongsi-price">${Number(data.gongsi_price).toLocaleString('ko-KR')}원/㎡</span>
+    </div>`;
+  }
+
   html += `</div>`;
 
   // ── 오피스텔 섹션 ──
   if (hasGJ) {
     if (hasGD) html += `<div class="section-title"><span class="badge badge-오피스텔">오피스텔</span> 기준시가</div>`;
 
-    // 시가표준액 토글 바
-    html += `
-    <div class="siga-bar">
-      <label class="toggle-lbl">
-        <input type="checkbox" id="siga_toggle" onchange="onSigaToggle()">
-        시가표준액 표시
-      </label>
-      <span id="siga_loading" style="display:none;font-size:13px;color:#3a7bd5">조회 중...</span>
-      <span id="siga_info_txt" style="display:none;font-size:12px;color:#888"></span>
-    </div>`;
-
     html += `<div class="result-count">${data.gigjungsi_count}건</div>
     <div class="table-wrap">
-    <table id="gj_table">
+    <table>
       <thead><tr>
         <th>건물명</th><th>층</th><th>호</th>
         <th class="num">전용면적(㎡)</th>
@@ -281,14 +241,10 @@ function renderResult(geo, data) {
         <th class="num">고시가격(원/㎡)</th>
         <th class="num">기준시가 합계</th>
         <th class="num hug-col">허그보증보험 한도</th>
-        <th class="num siga-bldg siga-col-hide" id="th_sb">건축물분<br>시가표준액</th>
-        <th class="siga-land siga-col-hide" id="th_dj">대지지분(㎡)<br><small style="font-weight:400;color:#888">각 호실 입력</small></th>
-        <th class="num siga-land siga-col-hide" id="th_sl">토지분<br>시가표준액</th>
-        <th class="num siga-total siga-col-hide" id="th_st">시가표준액<br>합계</th>
       </tr></thead>
       <tbody>`;
 
-    data.gigjungsi_items.forEach((r, i) => {
+    data.gigjungsi_items.forEach(r => {
       const hug = Math.round(r.total_price * 1.26);
       html += `<tr>
         <td>${r.bldg_name||'-'}</td>
@@ -300,14 +256,6 @@ function renderResult(geo, data) {
         <td class="price">${Number(r.price).toLocaleString('ko-KR')}</td>
         <td class="price">${Number(r.total_price).toLocaleString('ko-KR')}원</td>
         <td class="hug-col">${Number(hug).toLocaleString('ko-KR')}원</td>
-        <td class="siga-bldg siga-col-hide" id="sb_${i}">-</td>
-        <td class="siga-col-hide" id="dj_td_${i}">
-          <input type="number" step="0.01" placeholder="㎡"
-            style="width:72px;padding:4px 6px;border:1px solid #93c5fd;border-radius:5px;font-size:12px;font-family:inherit"
-            oninput="calcRow(${i}, this.value)" />
-        </td>
-        <td class="siga-land siga-col-hide" id="sl_${i}">-</td>
-        <td class="siga-total siga-col-hide" id="st_${i}">-</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -348,145 +296,6 @@ function renderResult(geo, data) {
 
   html += `</div>`;
   document.getElementById('result_area').innerHTML = html;
-}
-
-// ── 시가표준액 토글 ────────────────────────────────────────────
-async function onSigaToggle() {
-  const on = document.getElementById('siga_toggle').checked;
-
-  // 컬럼 표시/숨김 + 컨테이너 너비 확장
-  document.querySelectorAll('.siga-col-hide').forEach(el => {
-    el.style.display = on ? 'table-cell' : 'none';
-  });
-  document.querySelector('.container').classList.toggle('siga-wide', on);
-
-  if (!on) {
-    gState.siga_base = null;
-    document.getElementById('siga_info_txt').style.display = 'none';
-    return;
-  }
-
-  // 기본 정보 조회 (건축물대장 + 공시지가 + 일람표)
-  document.getElementById('siga_loading').style.display = '';
-  try {
-    const url = `/api/lookup/siga_info?bdong_cd=${gState.bdong_cd}&bun=${gState.bun}&ji=${gState.ji}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('조회 실패');
-    gState.siga_base = await resp.json();
-
-    const { unit_price_per_m2, gongsi_price, region_no, build_year, mode, otel_std_price } = gState.siga_base;
-
-    // 건축물분 시가표준액 즉시 표시 (대지지분 불필요)
-    if (mode === '오피스텔') {
-      const isRes = isResidentialOtel(gState.gj_items);
-      const 용도idx = isRes ? 1.05 : 1.0;
-      const floors = gState.gj_items.map(r => parseInt(r.floor_no)).filter(f => f > 0);
-      const minF = floors.length ? Math.min(...floors) : 1;
-      const maxF = floors.length ? Math.max(...floors) : 1;
-      gState.siga_base._isRes = isRes;
-      gState.siga_base._minF = minF;
-      gState.siga_base._maxF = maxF;
-      gState.gj_items.forEach((r, i) => {
-        const bldgArea = r.excl_area + r.share_area;
-        const 층idx = calc층지수(r.floor_no, minF, maxF, isRes);
-        const 가산율 = calc가감산율(bldgArea);
-        const bldg = Math.round(unit_price_per_m2 * bldgArea * 용도idx * 층idx * 가산율);
-        const el = document.getElementById('sb_' + i);
-        if (el) el.textContent = Number(bldg).toLocaleString('ko-KR') + '원';
-      });
-      const 용도분류 = isRes ? '주거용(1.050)' : '사무용(1.000)';
-      const infoEl = document.getElementById('siga_info_txt');
-      infoEl.style.display = '';
-      infoEl.textContent =
-        `[오피스텔 표준가격기준액] 단위가격 ${Number(unit_price_per_m2).toLocaleString()}원/㎡ · 용도지수 ${용도분류} · 공시지가 ${Number(gongsi_price).toLocaleString()}원/㎡`;
-    } else {
-      const infoEl = document.getElementById('siga_info_txt');
-      infoEl.style.display = '';
-      infoEl.textContent =
-        `[상업용 일람표] 단위가격 ${Number(unit_price_per_m2).toLocaleString()}원/㎡ · 공시지가 ${Number(gongsi_price).toLocaleString()}원/㎡ · 지역번호 ${region_no} · 준공 ${build_year}년`;
-    }
-
-  } catch(e) {
-    alert('시가표준액 기본 정보 조회 실패: ' + e.message);
-    document.getElementById('siga_toggle').checked = false;
-    document.querySelectorAll('.siga-col-hide').forEach(el => { el.style.display = 'none'; });
-  } finally {
-    document.getElementById('siga_loading').style.display = 'none';
-  }
-}
-
-// ── 오피스텔 용도 판별 (평균 공용비율 기반) ──────────────────────
-// 평균 공용/전용 비율 < 0.7 → 주거용(용도지수 1.05), >= 0.7 → 사무용(1.0)
-function isResidentialOtel(items) {
-  if (!items || items.length === 0) return false;
-  const valid = items.filter(r => r.excl_area > 0);
-  if (valid.length === 0) return false;
-  const avg = valid.reduce((s, r) => s + r.share_area / r.excl_area, 0) / valid.length;
-  return avg < 0.7;
-}
-
-// ── 층지수 계산 [별표 2] — 상대층수 기반 ────────────────────────
-// 주거용: 0.2이하=0.999 / ~0.4=1.000 / ~0.6=1.001 / ~0.8=1.002 / ~1=1.003 / 지하=0.9
-// 사무용: 지상 항상 1.0, 지하=0.9
-function calc층지수(floor_no, minFloor, maxFloor, isResidential) {
-  const f = parseInt(String(floor_no || '1').replace(/[bB]/, '-'));
-  if (isNaN(f) || f === 0) return 1.0;
-  if (f < 0) return 0.9;  // 지하층
-  if (!isResidential) return 1.0;  // 사무용 지상
-  if (minFloor == null || maxFloor == null || maxFloor === minFloor) return 1.0;
-  const rel = (f - minFloor) / (maxFloor - minFloor);
-  if (rel <= 0.2) return 0.999;
-  if (rel <= 0.4) return 1.000;
-  if (rel <= 0.6) return 1.001;
-  if (rel <= 0.8) return 1.002;
-  return 1.003;
-}
-
-// ── 가감산율 계산 [별표 3] — 전용+공용 합계면적 기준 ──────────────
-function calc가감산율(totalArea) {
-  if (totalArea <= 50)  return 1.000;
-  if (totalArea <= 100) return 0.999;
-  if (totalArea <= 150) return 0.998;
-  if (totalArea <= 200) return 0.997;
-  if (totalArea <= 250) return 0.996;
-  if (totalArea <= 300) return 0.995;
-  if (totalArea <= 350) return 0.994;
-  if (totalArea <= 400) return 0.993;
-  if (totalArea <= 450) return 0.992;
-  return 0.991;
-}
-
-// ── 행별 실시간 계산 ──────────────────────────────────────────
-function calcRow(i, val) {
-  if (!gState.siga_base) return;
-  const { unit_price_per_m2, gongsi_price, mode } = gState.siga_base;
-  const daejiji = parseFloat(val);
-  const r = gState.gj_items[i];
-
-  let bldg;
-  if (mode === '오피스텔') {
-    const { _isRes, _minF, _maxF } = gState.siga_base;
-    const 용도idx = _isRes ? 1.05 : 1.0;
-    const bldgArea = r.excl_area + r.share_area;
-    const 층idx = calc층지수(r.floor_no, _minF, _maxF, _isRes);
-    const 가산율 = calc가감산율(bldgArea);
-    bldg = Math.round(unit_price_per_m2 * bldgArea * 용도idx * 층idx * 가산율);
-  } else {
-    bldg = Math.round(unit_price_per_m2 * (r.excl_area + r.share_area));
-  }
-  const sl = document.getElementById('sl_' + i);
-  const st = document.getElementById('st_' + i);
-
-  if (!daejiji || daejiji <= 0) {
-    if (sl) sl.textContent = '-';
-    if (st) st.textContent = '-';
-    return;
-  }
-
-  const land = Math.round(gongsi_price * daejiji);
-  const tot  = bldg + land;
-  if (sl) sl.textContent = Number(land).toLocaleString('ko-KR') + '원';
-  if (st) st.textContent = Number(tot).toLocaleString('ko-KR') + '원';
 }
 
 // ── 유틸 ──────────────────────────────────────────────────────
