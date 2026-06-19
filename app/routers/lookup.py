@@ -10,6 +10,13 @@ from config import MOLIT_API_KEY, BLDG_API_URL
 
 router = APIRouter(prefix="/api/lookup", tags=["통합조회"])
 
+BUSAN_GU = {
+    '26110': '중구', '26140': '서구', '26170': '동구', '26200': '영도구',
+    '26230': '부산진구', '26260': '동래구', '26290': '남구', '26320': '북구',
+    '26350': '해운대구', '26380': '사하구', '26410': '금정구', '26440': '강서구',
+    '26470': '연제구', '26500': '수영구', '26530': '사상구', '26710': '기장군',
+}
+
 OFFICETEL_KW = ['오피스텔', '업무시설']
 GONGDONG_KW  = ['다세대', '연립', '아파트', '공동주택']
 
@@ -80,8 +87,9 @@ def search_building(q: str = Query(..., min_length=1)):
     """건물명으로 검색 — 자동완성용"""
     conn = get_conn()
     kw = f'%{q}%'
+    starts = f'{q}%'
 
-    # 공동주택(아파트) — 단지명 + 행정동 주소 포함
+    # 공동주택(아파트) — 단지명 + 구/동 주소
     gd = conn.execute("""
         SELECT DISTINCT danji_nm AS name,
                sigungu || ' ' || dong_nm AS addr,
@@ -90,31 +98,38 @@ def search_building(q: str = Query(..., min_length=1)):
         FROM gongdong
         WHERE danji_nm LIKE ?
         GROUP BY danji_nm, sigungu, dong_nm, bdong_cd
-        ORDER BY
-            CASE WHEN danji_nm LIKE ? THEN 0 ELSE 1 END,
-            danji_nm
+        ORDER BY CASE WHEN danji_nm LIKE ? THEN 0 ELSE 1 END, danji_nm
         LIMIT 15
-    """, (kw, f'{q}%')).fetchall()
+    """, (kw, starts)).fetchall()
 
-    # 오피스텔/상업용 건물 — 건물명
+    # 오피스텔/상업용 — gongsi 테이블과 JOIN해서 dong_nm(법정동명) 확보
     gj = conn.execute("""
-        SELECT DISTINCT bldg_name AS name,
-               type_nm AS addr,
-               bdong_cd, MIN(bun) AS bun, MIN(ji) AS ji,
+        SELECT DISTINCT g.bldg_name AS name,
+               COALESCE(gs.dong_nm, '') AS dong_nm,
+               g.bdong_cd, MIN(g.bun) AS bun, MIN(g.ji) AS ji,
                '오피스텔' AS btype
-        FROM gigjungsi
-        WHERE bldg_name LIKE ?
-        GROUP BY bldg_name, type_nm, bdong_cd
-        ORDER BY
-            CASE WHEN bldg_name LIKE ? THEN 0 ELSE 1 END,
-            bldg_name
+        FROM gigjungsi g
+        LEFT JOIN gongsi gs ON gs.bdong_cd = g.bdong_cd
+                            AND gs.bun = g.bun AND gs.ji = g.ji
+        WHERE g.bldg_name LIKE ?
+        GROUP BY g.bldg_name, g.bdong_cd
+        ORDER BY CASE WHEN g.bldg_name LIKE ? THEN 0 ELSE 1 END, g.bldg_name
         LIMIT 15
-    """, (kw, f'{q}%')).fetchall()
+    """, (kw, starts)).fetchall()
 
     conn.close()
 
-    results = [dict(r) for r in gd] + [dict(r) for r in gj]
-    # 부산 우선 정렬: bdong_cd 26으로 시작하면 부산
+    gd_list = [dict(r) for r in gd]
+    gj_list = []
+    for r in gj:
+        d = dict(r)
+        gu = BUSAN_GU.get(d['bdong_cd'][:5], '')
+        dong = d.pop('dong_nm', '')
+        parts = [p for p in [gu, dong] if p]
+        d['addr'] = ' '.join(parts)
+        gj_list.append(d)
+
+    results = gd_list + gj_list
     results.sort(key=lambda x: (0 if x['bdong_cd'].startswith('26') else 1))
     return {"results": results[:20]}
 
