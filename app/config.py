@@ -18,3 +18,21 @@ DB_PATH = Path(__file__).parent / "data" / "busan.db"
 MOLIT_API_KEY = os.environ.get("MOLIT_API_KEY", "2029d62769afe70bb952f9205fc01b69572f7b9c217f39f0082f956ca6308ec6")
 BLDG_API_URL  = "https://apis.data.go.kr/1613000/BldRgstHubService"
 
+# PostgreSQL (낙찰이력 — Supabase)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Render 무료 티어는 IPv6 미지원 → Supabase 직접 연결(db.xxx.supabase.co:5432)을
+# Supavisor pooler(pooler.supabase.com:6543)로 자동 변환
+if DATABASE_URL and ".supabase.co" in DATABASE_URL and "pooler" not in DATABASE_URL:
+    import re
+    m = re.match(
+        r"postgresql://postgres:([^@]+)@db\.([a-z0-9-]+)\.supabase\.co:\d+/postgres",
+        DATABASE_URL,
+    )
+    if m:
+        pw, ref = m.group(1), m.group(2)
+        DATABASE_URL = (
+            f"postgresql://postgres.{ref}:{pw}"
+            f"@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
+        )
+

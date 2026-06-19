@@ -3,8 +3,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
-from routers import gigjungsi, gongdong, lookup
+from routers import gigjungsi, gongdong, lookup, bid_history
 from db import get_conn
+from routers.bid_history import ensure_table
 
 app = FastAPI(title="부산 부동산 가격 조회")
 
@@ -36,6 +37,7 @@ def build_search_index():
         conn.commit()
         print("buildings_idx 완료")
     conn.close()
+    ensure_table()
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,5 +49,6 @@ app.add_middleware(
 app.include_router(gigjungsi.router)
 app.include_router(gongdong.router)
 app.include_router(lookup.router)
+app.include_router(bid_history.router)
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="static")
