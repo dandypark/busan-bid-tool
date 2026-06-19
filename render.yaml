@@ -12,3 +12,5 @@ services:
         sync: false          # GitHub Release URL 입력
       - key: MOLIT_API_KEY
         sync: false          # 건물 API 키 (선택)
+      - key: PYTHON_VERSION
+        value: "3.11.0"
