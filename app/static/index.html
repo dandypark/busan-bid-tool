@@ -371,6 +371,27 @@
 </div>
 </div>
 
+<!-- 건물 검색 모달 -->
+<div id="bldg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;width:560px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+    <!-- 헤더 -->
+    <div style="padding:20px 24px 16px;border-bottom:1px solid #e8eaf0;display:flex;align-items:center;gap:10px">
+      <span style="font-size:18px">🔍</span>
+      <span style="font-size:16px;font-weight:700;color:#1a2a4a">주소를 검색해주세요</span>
+      <button onclick="closeBldgModal()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:#999;line-height:1">×</button>
+    </div>
+    <!-- 검색창 -->
+    <div style="padding:14px 24px;border-bottom:1px solid #f0f0f0;display:flex;gap:10px">
+      <input id="modal_input" type="text" placeholder="예) 온천장로, 온천동 153-4, 더블레싱돌래"
+        style="flex:1;padding:10px 14px;border:1.5px solid #d0d7e4;border-radius:8px;font-size:14px;font-family:inherit;outline:none"
+        oninput="onModalInput()" onkeydown="if(event.key==='Enter')onModalSearch()" />
+      <button onclick="onModalSearch()" style="padding:10px 20px;background:#22c55e;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">검색</button>
+    </div>
+    <!-- 결과 목록 -->
+    <div id="modal_list" style="overflow-y:auto;flex:1;padding:8px 0"></div>
+  </div>
+</div>
+
 <script>
 const KAKAO_KEY = '665c3a3b10292afb05411a6cd25599da';
 
@@ -498,41 +519,76 @@ async function fetchAndRender(geo) {
   renderResult(geo, data);
 }
 
-// ── 건물 선택 목록 표시 ────────────────────────────────────────
-function showBuildingList(results) {
-  const area = document.getElementById('result_area');
-  area.innerHTML = `
-    <div class="card">
-      <div style="font-size:15px;font-weight:700;color:#1a2a4a;margin-bottom:14px">
-        🔍 검색 결과 ${results.length}건 — 건물을 선택하세요
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        ${results.map(r => {
-          const badge = r.btype === '공동주택'
-            ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;margin-right:8px">아파트</span>'
-            : '<span style="font-size:11px;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;margin-right:8px">오피스텔</span>';
-          const addr = r.addr ? `<span style="color:#777;font-size:13px;margin-left:4px">부산 ${r.addr}</span>` : '';
-          return `<div onclick="selectBuilding(${JSON.stringify(r).replace(/"/g,'&quot;')})"
-            style="padding:12px 16px;border:1.5px solid #e0e4ea;border-radius:8px;cursor:pointer;
-                   display:flex;align-items:center;transition:all .15s"
-            onmouseenter="this.style.borderColor='#3a7bd5';this.style.background='#f0f6ff'"
-            onmouseleave="this.style.borderColor='#e0e4ea';this.style.background=''">
-            ${badge}<span style="font-weight:600">${r.name}</span>${addr}
-          </div>`;
-        }).join('')}
-      </div>
-    </div>`;
+// ── 건물 검색 모달 ────────────────────────────────────────────
+function openBldgModal(initQuery) {
+  const modal = document.getElementById('bldg_modal');
+  modal.style.display = 'flex';
+  const inp = document.getElementById('modal_input');
+  inp.value = initQuery || '';
+  document.getElementById('modal_list').innerHTML = '';
+  inp.focus();
+  if (initQuery) onModalSearch();
 }
 
-async function selectBuilding(r) {
-  const btn = document.getElementById('search_btn');
-  btn.disabled = true;
-  document.getElementById('addr_input').value = r.name + (r.addr ? ' (부산 ' + r.addr + ')' : '');
+function closeBldgModal() {
+  document.getElementById('bldg_modal').style.display = 'none';
+}
+
+document.getElementById('bldg_modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('bldg_modal')) closeBldgModal();
+});
+
+let _modalTimer = null;
+function onModalInput() {
+  clearTimeout(_modalTimer);
+  _modalTimer = setTimeout(onModalSearch, 300);
+}
+
+async function onModalSearch() {
+  const q = document.getElementById('modal_input').value.trim();
+  const list = document.getElementById('modal_list');
+  if (!q) { list.innerHTML = ''; return; }
+
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:#888;font-size:14px">검색 중...</div>';
+
   try {
-    await fetchAndRender({ bdong_cd: r.bdong_cd, bun: r.bun, ji: r.ji,
-                           address_name: r.name + (r.addr ? ' (부산 ' + r.addr + ')' : '') });
+    const res = await fetch(`/api/lookup/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    renderModalList(data.results || [], q);
+  } catch(e) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#e44">오류가 발생했습니다.</div>';
+  }
+}
+
+function renderModalList(results, q) {
+  const list = document.getElementById('modal_list');
+  if (!results.length) {
+    list.innerHTML = `<div style="padding:32px;text-align:center;color:#aaa;font-size:14px">검색 결과가 없습니다.</div>`;
+    return;
+  }
+  list.innerHTML = results.map(r => {
+    const addrFull = r.addr ? '부산 ' + r.addr : '부산';
+    const jibun = r.addr ? '[지번] ' + addrFull : '';
+    return `<div onclick="selectBldgFromModal(${JSON.stringify(r).replace(/"/g,'&quot;')})"
+      style="padding:14px 24px;cursor:pointer;border-bottom:1px solid #f3f4f6;transition:background .1s"
+      onmouseenter="this.style.background='#f8faff'"
+      onmouseleave="this.style.background=''">
+      <div style="font-size:15px;font-weight:700;color:#1a2a4a;margin-bottom:4px">${r.name}</div>
+      ${jibun ? `<div style="font-size:13px;color:#555">${jibun}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function selectBldgFromModal(r) {
+  closeBldgModal();
+  const addrText = r.name + (r.addr ? ' (부산 ' + r.addr + ')' : '');
+  document.getElementById('addr_input').value = addrText;
+  const btn = document.getElementById('search_btn');
+  btn.disabled = true; btn.textContent = '조회 중...';
+  try {
+    await fetchAndRender({ bdong_cd: r.bdong_cd, bun: r.bun, ji: r.ji, address_name: addrText });
   } catch(e) { showError(e.message); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; btn.textContent = '조회'; }
 }
 
 // ── 검색 ───────────────────────────────────────────────────────
@@ -540,38 +596,7 @@ async function doSearch() {
   const addr = document.getElementById('addr_input').value.trim();
   if (!addr) return alert('주소를 입력하세요');
   closeAC();
-
-  const btn = document.getElementById('search_btn');
-  btn.disabled = true; btn.textContent = '조회 중...';
-  setLoading('건물을 검색하는 중입니다...');
-
-  try {
-    // 1단계: DB에서 건물명 검색
-    const sr = await fetch(`/api/lookup/search?q=${encodeURIComponent(addr)}`);
-    const sd = await sr.json();
-    const hits = sd.results || [];
-
-    if (hits.length === 1) {
-      // 결과 1건이면 바로 조회
-      await selectBuilding(hits[0]);
-      return;
-    }
-    if (hits.length > 1) {
-      // 여러 건이면 선택 목록 표시
-      showBuildingList(hits);
-      return;
-    }
-
-    // 2단계: 건물명 검색 결과 없으면 주소(Kakao) 검색
-    btn.textContent = '조회 중...';
-    const geo = await geocode(addr);
-    if (!geo) { showError('주소 또는 건물을 찾을 수 없습니다.'); return; }
-    await fetchAndRender(geo);
-  } catch(e) {
-    showError(e.message || '오류가 발생했습니다.');
-  } finally {
-    btn.disabled = false; btn.textContent = '조회';
-  }
+  openBldgModal(addr);
 }
 
 // ── 결과 렌더링 ────────────────────────────────────────────────
