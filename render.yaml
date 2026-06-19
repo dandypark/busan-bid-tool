@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: busan-bid-tool
+    runtime: python
+    buildCommand: "bash build.sh"
+    startCommand: "cd app && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Render 대시보드에서 직접 입력
+      - key: DB_DOWNLOAD_URL
+        sync: false          # GitHub Release URL 입력
+      - key: MOLIT_API_KEY
+        sync: false          # 건물 API 키 (선택)

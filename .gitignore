@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+
+# 데이터 파일 (용량 큼 — GitHub Releases로 별도 배포)
+app/data/busan.db
+기준시가_전국/
+공동주택가격_부산/
+시가표준액_부산/
+토지개별공시지가_부산/
+
+# 기타
+docs/superpowers/
+*.xls
+*.xlsx
+*.csv
