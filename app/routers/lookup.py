@@ -48,7 +48,7 @@ def _get_bldg_info(sigungu_cd: str, bjdong_cd: str, bun: str, ji: str) -> dict |
         "bun": bun.zfill(4), "ji": ji.zfill(4),
     }
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(url, params=params, timeout=3)
         tree = ET.fromstring(resp.text)
         item = tree.find('.//item')
         if item is None:
@@ -89,61 +89,72 @@ def search_building(q: str = Query(..., min_length=1)):
     kw = f'%{q}%'
     starts = f'{q}%'
 
-    # 공동주택(아파트) — 단지명 + 구/동/번지
+    def jibun(bun, ji): return f'{bun}-{ji}' if ji else str(bun)
+
+    # 공동주택 — idx_gongdong_danji 인덱스 활용 (prefix LIKE)
     gd = conn.execute("""
-        SELECT DISTINCT danji_nm AS name,
-               sigungu AS sigungu, dong_nm AS dong_nm,
-               bdong_cd, MIN(bun) AS bun, MIN(ji) AS ji,
-               '공동주택' AS btype
+        SELECT danji_nm AS name, sigungu, dong_nm,
+               bdong_cd, bun, ji, '공동주택' AS btype
         FROM gongdong
         WHERE danji_nm LIKE ?
-        GROUP BY danji_nm, sigungu, dong_nm, bdong_cd
-        ORDER BY CASE WHEN danji_nm LIKE ? THEN 0 ELSE 1 END, danji_nm
-        LIMIT 15
-    """, (kw, starts)).fetchall()
+        GROUP BY danji_nm, sigungu, dong_nm, bdong_cd, bun, ji
+        ORDER BY danji_nm
+        LIMIT 10
+    """, (starts,)).fetchall()
 
-    # 오피스텔/상업용 — gongsi JOIN으로 동명 확보
+    # 오피스텔 — idx_gigjungsi_bldg 인덱스 활용 (prefix LIKE)
     gj = conn.execute("""
-        SELECT DISTINCT g.bldg_name AS name,
-               COALESCE(gs.dong_nm, '') AS dong_nm,
-               g.bdong_cd, MIN(g.bun) AS bun, MIN(g.ji) AS ji,
-               '오피스텔' AS btype
-        FROM gigjungsi g
-        LEFT JOIN gongsi gs ON gs.bdong_cd = g.bdong_cd
-                            AND gs.bun = g.bun AND gs.ji = g.ji
-        WHERE g.bldg_name LIKE ?
-        GROUP BY g.bldg_name, g.bdong_cd
-        ORDER BY CASE WHEN g.bldg_name LIKE ? THEN 0 ELSE 1 END, g.bldg_name
-        LIMIT 15
-    """, (kw, starts)).fetchall()
+        SELECT bldg_name AS name, bdong_cd, bun, ji, '오피스텔' AS btype
+        FROM gigjungsi
+        WHERE bldg_name LIKE ?
+        GROUP BY bldg_name, bdong_cd, bun, ji
+        ORDER BY bldg_name
+        LIMIT 10
+    """, (starts,)).fetchall()
+
+    # prefix로 결과 부족하면 중간 포함 검색 추가
+    if len(gd) < 5:
+        gd2 = conn.execute("""
+            SELECT danji_nm AS name, sigungu, dong_nm,
+                   bdong_cd, bun, ji, '공동주택' AS btype
+            FROM gongdong
+            WHERE danji_nm LIKE ? AND danji_nm NOT LIKE ?
+            GROUP BY danji_nm, sigungu, dong_nm, bdong_cd, bun, ji
+            ORDER BY danji_nm
+            LIMIT ?
+        """, (kw, starts, 10 - len(gd))).fetchall()
+        gd = list(gd) + list(gd2)
+
+    if len(gj) < 5:
+        gj2 = conn.execute("""
+            SELECT bldg_name AS name, bdong_cd, bun, ji, '오피스텔' AS btype
+            FROM gigjungsi
+            WHERE bldg_name LIKE ? AND bldg_name NOT LIKE ?
+            GROUP BY bldg_name, bdong_cd, bun, ji
+            ORDER BY bldg_name
+            LIMIT ?
+        """, (kw, starts, 10 - len(gj))).fetchall()
+        gj = list(gj) + list(gj2)
 
     conn.close()
-
-    def jibun(bun, ji):
-        return f'{bun}-{ji}' if ji else str(bun)
 
     gd_list = []
     for r in gd:
         d = dict(r)
-        sigungu = d.pop('sigungu', '')
-        dong = d.pop('dong_nm', '')
-        jb = jibun(d['bun'], d['ji'])
-        parts = [p for p in [sigungu, dong, jb] if p]
-        d['addr'] = ' '.join(parts)
+        sg = d.pop('sigungu', '')
+        dn = d.pop('dong_nm', '')
+        d['addr'] = ' '.join(p for p in [sg, dn, jibun(d['bun'], d['ji'])] if p)
         gd_list.append(d)
 
     gj_list = []
     for r in gj:
         d = dict(r)
         gu = BUSAN_GU.get(d['bdong_cd'][:5], '')
-        dong = d.pop('dong_nm', '')
-        jb = jibun(d['bun'], d['ji'])
-        parts = [p for p in [gu, dong, jb] if p]
-        d['addr'] = ' '.join(parts)
+        d['addr'] = ' '.join(p for p in [gu, jibun(d['bun'], d['ji'])] if p)
         gj_list.append(d)
 
     results = gd_list + gj_list
-    results.sort(key=lambda x: (0 if x['bdong_cd'].startswith('26') else 1))
+    results.sort(key=lambda x: (0 if x['bdong_cd'].startswith('26') else 1, x['name']))
     return {"results": results[:20]}
 
 
