@@ -337,9 +337,8 @@
 <div class="search-wrap">
   <div class="search-box" style="position:relative">
     <input id="addr_input" type="text"
-      placeholder="건물명 또는 주소 입력 (예: 루미향스, 온천동 1410-5)"
-      onkeydown="onAddrKeydown(event)"
-      oninput="onAddrInput()"
+      placeholder="건물명 또는 주소 입력 (예: 루미랑스, 온천동 1410-5)"
+      onkeydown="if(event.key==='Enter') doSearch()"
       autocomplete="off" />
     <button id="search_btn" onclick="doSearch()">조회</button>
     <div id="autocomplete_box" style="
