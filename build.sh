@@ -3,7 +3,7 @@
 
 set -e
 
-pip install -r app/requirements.txt
+pip install --prefer-binary -r app/requirements.txt
 
 mkdir -p app/data
 
